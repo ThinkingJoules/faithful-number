@@ -185,11 +185,17 @@ impl FromStr for Number {
                 if let Ok(d) = Decimal::from_str(s) {
                     NumericValue::Decimal(d)
                 } else {
-                    // Try to parse as f64 for cases Decimal can't handle
-                    if let Ok(f) = f64::from_str(s) {
-                        return Ok(Number::from(f));
+                    // Try to parse as BigDecimal for very large numbers
+                    use bigdecimal::BigDecimal;
+                    if let Ok(bd) = s.parse::<BigDecimal>() {
+                        NumericValue::BigDecimal(bd)
                     } else {
-                        return Err(());
+                        // Try to parse as f64 for cases neither can handle
+                        if let Ok(f) = f64::from_str(s) {
+                            return Ok(Number::from(f));
+                        } else {
+                            return Err(());
+                        }
                     }
                 }
             }

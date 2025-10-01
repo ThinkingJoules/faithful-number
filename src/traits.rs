@@ -218,8 +218,57 @@ impl PartialEq for Number {
             // +0 equals -0 (maintaining this JS semantic for simplicity)
             (NumericValue::Decimal(a), NumericValue::NegativeZero)
             | (NumericValue::NegativeZero, NumericValue::Decimal(a)) => a.is_zero(),
-            // Mixed-type comparisons - not yet implemented
-            _ => unimplemented!("Mixed-type equality not yet implemented"),
+
+            // Mixed-type comparisons
+            // Rational vs Decimal: convert Decimal to Rational for exact comparison
+            (NumericValue::Rational(r), NumericValue::Decimal(d)) |
+            (NumericValue::Decimal(d), NumericValue::Rational(r)) => {
+                // Convert Decimal to Rational for exact comparison
+                use num_rational::Ratio;
+                let mantissa = d.mantissa();
+                // Try to convert mantissa to i64, if it doesn't fit they can't be equal
+                // since our Rational is Ratio<i64>
+                if let Ok(mantissa_i64) = mantissa.try_into() {
+                    let scale = d.scale();
+                    let denominator = 10i64.pow(scale);
+                    let decimal_as_rational = Ratio::new(mantissa_i64, denominator);
+                    r == &decimal_as_rational
+                } else {
+                    false
+                }
+            }
+
+            // Rational vs BigDecimal: convert to BigDecimal for comparison
+            (NumericValue::Rational(r), NumericValue::BigDecimal(bd)) |
+            (NumericValue::BigDecimal(bd), NumericValue::Rational(r)) => {
+                use bigdecimal::{BigDecimal, num_bigint::BigInt};
+                let numer_bd = BigDecimal::from(BigInt::from(*r.numer()));
+                let denom_bd = BigDecimal::from(BigInt::from(*r.denom()));
+                &(numer_bd / denom_bd) == bd
+            }
+
+            // Decimal vs BigDecimal: convert Decimal to BigDecimal
+            (NumericValue::Decimal(d), NumericValue::BigDecimal(bd)) |
+            (NumericValue::BigDecimal(bd), NumericValue::Decimal(d)) => {
+                use bigdecimal::BigDecimal;
+                let d_str = d.to_string();
+                if let Ok(d_bd) = d_str.parse::<BigDecimal>() {
+                    &d_bd == bd
+                } else {
+                    false
+                }
+            }
+
+            // Rational vs NegativeZero
+            (NumericValue::Rational(r), NumericValue::NegativeZero) |
+            (NumericValue::NegativeZero, NumericValue::Rational(r)) => r.is_zero(),
+
+            // BigDecimal vs NegativeZero
+            (NumericValue::BigDecimal(bd), NumericValue::NegativeZero) |
+            (NumericValue::NegativeZero, NumericValue::BigDecimal(bd)) => bd.is_zero(),
+
+            // All other mixed-type comparisons are false
+            _ => false,
         }
     }
 }

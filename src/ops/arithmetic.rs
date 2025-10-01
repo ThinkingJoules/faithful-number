@@ -1,14 +1,47 @@
 use crate::{Number, NumericValue, forward_ref_binop};
 use rust_decimal::Decimal;
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
+use num_traits::{Zero, Signed};
 impl Add for NumericValue {
     type Output = NumericValue;
     fn add(self, rhs: NumericValue) -> NumericValue {
         match (self, rhs) {
-            (NumericValue::Decimal(a), NumericValue::Decimal(b)) => NumericValue::Decimal(a + b),
+            (NumericValue::Decimal(a), NumericValue::Decimal(b)) => {
+                // Try addition, graduate to BigDecimal on overflow
+                match a.checked_add(b) {
+                    Some(result) => NumericValue::Decimal(result),
+                    None => {
+                        // Overflow - graduate to BigDecimal
+                        use bigdecimal::BigDecimal;
+                        let a_str = a.to_string();
+                        let b_str = b.to_string();
+                        let a_bd: BigDecimal = a_str.parse().unwrap();
+                        let b_bd: BigDecimal = b_str.parse().unwrap();
+                        NumericValue::BigDecimal(a_bd + b_bd)
+                    }
+                }
+            }
             (NumericValue::Decimal(a), NumericValue::NegativeZero) => NumericValue::Decimal(a),
             (NumericValue::NegativeZero, NumericValue::Decimal(b)) => NumericValue::Decimal(b),
             (NumericValue::NegativeZero, NumericValue::NegativeZero) => NumericValue::NegativeZero, // (-0) + (-0) = -0
+
+            // BigDecimal operations
+            (NumericValue::BigDecimal(a), NumericValue::BigDecimal(b)) => {
+                NumericValue::BigDecimal(a + b)
+            }
+            (NumericValue::BigDecimal(a), NumericValue::Decimal(b)) => {
+                use bigdecimal::BigDecimal;
+                let b_str = b.to_string();
+                let b_bd: BigDecimal = b_str.parse().unwrap();
+                NumericValue::BigDecimal(a + b_bd)
+            }
+            (NumericValue::Decimal(a), NumericValue::BigDecimal(b)) => {
+                use bigdecimal::BigDecimal;
+                let a_str = a.to_string();
+                let a_bd: BigDecimal = a_str.parse().unwrap();
+                NumericValue::BigDecimal(a_bd + b)
+            }
+
             (NumericValue::NaN, _) | (_, NumericValue::NaN) => NumericValue::NaN,
             (NumericValue::PositiveInfinity, NumericValue::NegativeInfinity)
             | (NumericValue::NegativeInfinity, NumericValue::PositiveInfinity) => NumericValue::NaN, // ∞ + (-∞) = NaN
@@ -18,8 +51,8 @@ impl Add for NumericValue {
             (NumericValue::NegativeInfinity, _) | (_, NumericValue::NegativeInfinity) => {
                 NumericValue::NegativeInfinity
             }
-            // Rational and BigDecimal operations not yet implemented
-            _ => unimplemented!("Add operation with Rational/BigDecimal not yet implemented"),
+            // Rational operations not yet implemented
+            _ => unimplemented!("Add operation with Rational not yet implemented"),
         }
     }
 }
@@ -28,10 +61,42 @@ impl Sub for NumericValue {
     type Output = NumericValue;
     fn sub(self, rhs: NumericValue) -> NumericValue {
         match (self, rhs) {
-            (NumericValue::Decimal(a), NumericValue::Decimal(b)) => NumericValue::Decimal(a - b),
+            (NumericValue::Decimal(a), NumericValue::Decimal(b)) => {
+                // Try subtraction, graduate to BigDecimal on overflow
+                match a.checked_sub(b) {
+                    Some(result) => NumericValue::Decimal(result),
+                    None => {
+                        // Overflow - graduate to BigDecimal
+                        use bigdecimal::BigDecimal;
+                        let a_str = a.to_string();
+                        let b_str = b.to_string();
+                        let a_bd: BigDecimal = a_str.parse().unwrap();
+                        let b_bd: BigDecimal = b_str.parse().unwrap();
+                        NumericValue::BigDecimal(a_bd - b_bd)
+                    }
+                }
+            }
             (NumericValue::Decimal(a), NumericValue::NegativeZero) => NumericValue::Decimal(a), // x - (-0) = x
             (NumericValue::NegativeZero, NumericValue::Decimal(b)) => NumericValue::Decimal(-b), // (-0) - x = -x
             (NumericValue::NegativeZero, NumericValue::NegativeZero) => NumericValue::ZERO, // (-0) - (-0) = +0
+
+            // BigDecimal operations
+            (NumericValue::BigDecimal(a), NumericValue::BigDecimal(b)) => {
+                NumericValue::BigDecimal(a - b)
+            }
+            (NumericValue::BigDecimal(a), NumericValue::Decimal(b)) => {
+                use bigdecimal::BigDecimal;
+                let b_str = b.to_string();
+                let b_bd: BigDecimal = b_str.parse().unwrap();
+                NumericValue::BigDecimal(a - b_bd)
+            }
+            (NumericValue::Decimal(a), NumericValue::BigDecimal(b)) => {
+                use bigdecimal::BigDecimal;
+                let a_str = a.to_string();
+                let a_bd: BigDecimal = a_str.parse().unwrap();
+                NumericValue::BigDecimal(a_bd - b)
+            }
+
             (NumericValue::NaN, _) | (_, NumericValue::NaN) => NumericValue::NaN,
             (NumericValue::PositiveInfinity, NumericValue::PositiveInfinity)
             | (NumericValue::NegativeInfinity, NumericValue::NegativeInfinity) => NumericValue::NaN, // ∞ - ∞ = NaN
@@ -39,8 +104,8 @@ impl Sub for NumericValue {
             (NumericValue::NegativeInfinity, _) => NumericValue::NegativeInfinity,
             (_, NumericValue::PositiveInfinity) => NumericValue::NegativeInfinity,
             (_, NumericValue::NegativeInfinity) => NumericValue::PositiveInfinity,
-            // Rational and BigDecimal operations not yet implemented
-            _ => unimplemented!("Sub operation with Rational/BigDecimal not yet implemented"),
+            // Rational operations not yet implemented
+            _ => unimplemented!("Sub operation with Rational not yet implemented"),
         }
     }
 }
@@ -49,7 +114,21 @@ impl Mul for NumericValue {
     type Output = NumericValue;
     fn mul(self, rhs: NumericValue) -> NumericValue {
         match (self, rhs) {
-            (NumericValue::Decimal(a), NumericValue::Decimal(b)) => NumericValue::Decimal(a * b),
+            (NumericValue::Decimal(a), NumericValue::Decimal(b)) => {
+                // Try multiplication, graduate to BigDecimal on overflow
+                match a.checked_mul(b) {
+                    Some(result) => NumericValue::Decimal(result),
+                    None => {
+                        // Overflow - graduate to BigDecimal
+                        use bigdecimal::BigDecimal;
+                        let a_str = a.to_string();
+                        let b_str = b.to_string();
+                        let a_bd: BigDecimal = a_str.parse().unwrap();
+                        let b_bd: BigDecimal = b_str.parse().unwrap();
+                        NumericValue::BigDecimal(a_bd * b_bd)
+                    }
+                }
+            }
             (NumericValue::Decimal(a), NumericValue::NegativeZero) => {
                 if a.is_zero() {
                     NumericValue::NegativeZero // 0 * (-0) = -0 in JS
@@ -133,7 +212,107 @@ impl Div for NumericValue {
                         NumericValue::NegativeInfinity // negative/0 = -∞
                     }
                 } else {
-                    NumericValue::Decimal(a / b)
+                    // Try division with Decimal first
+                    match a.checked_div(b) {
+                        Some(result) => {
+                            // Check if this is an exact result or needs Rational representation
+                            // If result * b != a, we lost precision, use Rational instead
+                            if result.checked_mul(b) == Some(a) {
+                                NumericValue::Decimal(result)
+                            } else {
+                                // Graduate to Rational for exact representation
+                                use num_rational::Ratio;
+                                // Convert Decimals to integers by scaling
+                                let a_mantissa = a.mantissa();
+                                let a_scale = a.scale();
+                                let b_mantissa = b.mantissa();
+                                let b_scale = b.scale();
+
+                                // Check if mantissas fit in i64
+                                if let (Ok(a_i64), Ok(b_i64)) = (
+                                    a_mantissa.try_into() as Result<i64, _>,
+                                    b_mantissa.try_into() as Result<i64, _>
+                                ) {
+                                    // Adjust for scale difference
+                                    let rational = if a_scale >= b_scale {
+                                        let scale_diff = a_scale - b_scale;
+                                        let factor = 10i64.pow(scale_diff);
+                                        Ratio::new(a_i64, b_i64 * factor)
+                                    } else {
+                                        let scale_diff = b_scale - a_scale;
+                                        let factor = 10i64.pow(scale_diff);
+                                        Ratio::new(a_i64 * factor, b_i64)
+                                    };
+
+                                    NumericValue::Rational(rational)
+                                } else {
+                                    // Mantissa doesn't fit in i64, use BigDecimal
+                                    use bigdecimal::BigDecimal;
+                                    let a_str = a.to_string();
+                                    let b_str = b.to_string();
+                                    let a_bd: BigDecimal = a_str.parse().unwrap();
+                                    let b_bd: BigDecimal = b_str.parse().unwrap();
+                                    NumericValue::BigDecimal(a_bd / b_bd)
+                                }
+                            }
+                        }
+                        None => {
+                            // Overflow or underflow - graduate to BigDecimal
+                            use bigdecimal::BigDecimal;
+                            let a_str = a.to_string();
+                            let b_str = b.to_string();
+                            let a_bd: BigDecimal = a_str.parse().unwrap();
+                            let b_bd: BigDecimal = b_str.parse().unwrap();
+                            NumericValue::BigDecimal(a_bd / b_bd)
+                        }
+                    }
+                }
+            }
+            // BigDecimal division
+            (NumericValue::BigDecimal(a), NumericValue::BigDecimal(b)) => {
+                if b.is_zero() {
+                    if a.is_zero() {
+                        NumericValue::NaN
+                    } else if a.is_positive() {
+                        NumericValue::PositiveInfinity
+                    } else {
+                        NumericValue::NegativeInfinity
+                    }
+                } else {
+                    NumericValue::BigDecimal(a / b)
+                }
+            }
+            // Mixed BigDecimal/Decimal division
+            (NumericValue::BigDecimal(a), NumericValue::Decimal(b)) => {
+                if b.is_zero() {
+                    if a.is_zero() {
+                        NumericValue::NaN
+                    } else if a.is_positive() {
+                        NumericValue::PositiveInfinity
+                    } else {
+                        NumericValue::NegativeInfinity
+                    }
+                } else {
+                    use bigdecimal::BigDecimal;
+                    let b_str = b.to_string();
+                    let b_bd: BigDecimal = b_str.parse().unwrap();
+                    NumericValue::BigDecimal(a / b_bd)
+                }
+            }
+            (NumericValue::Decimal(a), NumericValue::BigDecimal(b)) => {
+                if b.is_zero() {
+                    if a.is_zero() {
+                        NumericValue::NaN
+                    } else if a > Decimal::ZERO {
+                        NumericValue::PositiveInfinity
+                    } else {
+                        NumericValue::NegativeInfinity
+                    }
+                } else {
+                    use bigdecimal::BigDecimal;
+                    let a_str = a.to_string();
+                    let a_bd: BigDecimal = a_str.parse().unwrap();
+                    NumericValue::BigDecimal(a_bd / b)
                 }
             }
             (NumericValue::Decimal(a), NumericValue::NegativeZero) => {
