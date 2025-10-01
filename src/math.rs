@@ -1,58 +1,55 @@
-use crate::Number;
+use crate::{Number, NumericValue};
 use rust_decimal::Decimal;
 
-use num_traits::ToPrimitive;
+use num_traits::{FromPrimitive, Signed, ToPrimitive};
 use std::str::FromStr;
 
-impl Number {
+impl NumericValue {
     // Mathematical functions following JS semantics
-    pub fn abs(self) -> Number {
+    pub fn abs(self) -> NumericValue {
         match self {
-            Number::Finite(d) => Number::Finite(d.abs()),
-            Number::NegativeZero => Number::ZERO, // abs(-0) = +0
-            Number::NaN => Number::NaN,
-            Number::PositiveInfinity => Number::PositiveInfinity,
-            Number::NegativeInfinity => Number::PositiveInfinity,
+            NumericValue::Rational(r) => NumericValue::Rational(r.abs()),
+            NumericValue::Decimal(d) => NumericValue::Decimal(d.abs()),
+            NumericValue::BigDecimal(bd) => NumericValue::BigDecimal(bd.abs()),
+            NumericValue::NegativeZero => NumericValue::ZERO, // abs(-0) = +0
+            NumericValue::NaN => NumericValue::NaN,
+            NumericValue::PositiveInfinity => NumericValue::PositiveInfinity,
+            NumericValue::NegativeInfinity => NumericValue::PositiveInfinity,
         }
     }
 
-    pub fn floor(self) -> Number {
+    pub fn floor(self) -> NumericValue {
         match self {
-            Number::Finite(d) => {
-                // JavaScript floor: largest integer less than or equal to the number
-                // Using f64 conversion is safe here since the result is always a whole number
-                // and whole numbers within reasonable range are exactly representable in f64
-                let f = d.to_f64().unwrap_or(0.0);
-                Number::from(f.floor())
+            NumericValue::Rational(_) | NumericValue::Decimal(_) | NumericValue::BigDecimal(_) => {
+                let f = self.to_f64();
+                NumericValue::from(f.floor())
             }
-            Number::NegativeZero => Number::NegativeZero, // floor(-0) = -0
-            Number::NaN => Number::NaN,
-            Number::PositiveInfinity => Number::PositiveInfinity,
-            Number::NegativeInfinity => Number::NegativeInfinity,
+            NumericValue::NegativeZero => NumericValue::NegativeZero, // floor(-0) = -0
+            NumericValue::NaN => NumericValue::NaN,
+            NumericValue::PositiveInfinity => NumericValue::PositiveInfinity,
+            NumericValue::NegativeInfinity => NumericValue::NegativeInfinity,
         }
     }
 
-    pub fn ceil(self) -> Number {
+    pub fn ceil(self) -> NumericValue {
         match self {
-            Number::Finite(d) => {
-                // JavaScript ceil: smallest integer greater than or equal to the number
-                // Using f64 conversion is safe here since the result is always a whole number
-                let f = d.to_f64().unwrap_or(0.0);
-                Number::from(f.ceil())
+            NumericValue::Rational(_) | NumericValue::Decimal(_) | NumericValue::BigDecimal(_) => {
+                let f = self.to_f64();
+                NumericValue::from(f.ceil())
             }
-            Number::NegativeZero => Number::NegativeZero, // ceil(-0) = -0
-            Number::NaN => Number::NaN,
-            Number::PositiveInfinity => Number::PositiveInfinity,
-            Number::NegativeInfinity => Number::NegativeInfinity,
+            NumericValue::NegativeZero => NumericValue::NegativeZero, // ceil(-0) = -0
+            NumericValue::NaN => NumericValue::NaN,
+            NumericValue::PositiveInfinity => NumericValue::PositiveInfinity,
+            NumericValue::NegativeInfinity => NumericValue::NegativeInfinity,
         }
     }
 
-    pub fn round(self) -> Number {
+    pub fn round(self) -> NumericValue {
         match self {
-            Number::Finite(d) => {
+            NumericValue::Rational(_) | NumericValue::Decimal(_) | NumericValue::BigDecimal(_) => {
                 // JavaScript round: rounds to nearest integer, ties away from zero
                 // For -3.5, should round to -3 (away from zero)
-                let f = d.to_f64().unwrap_or(0.0);
+                let f = self.to_f64();
                 let rounded = if f >= 0.0 {
                     (f + 0.5).floor()
                 } else {
@@ -61,42 +58,57 @@ impl Number {
                     // Use: (f + 0.5).ceil() for negative numbers
                     (f + 0.5).ceil()
                 };
-                Number::from(rounded)
+                NumericValue::from(rounded)
             }
-            Number::NegativeZero => Number::NegativeZero, // round(-0) = -0
-            Number::NaN => Number::NaN,
-            Number::PositiveInfinity => Number::PositiveInfinity,
-            Number::NegativeInfinity => Number::NegativeInfinity,
+            NumericValue::NegativeZero => NumericValue::NegativeZero, // round(-0) = -0
+            NumericValue::NaN => NumericValue::NaN,
+            NumericValue::PositiveInfinity => NumericValue::PositiveInfinity,
+            NumericValue::NegativeInfinity => NumericValue::NegativeInfinity,
         }
     }
 
-    pub fn round_dp(self, dp: u32) -> Number {
+    pub fn round_dp(self, dp: u32) -> NumericValue {
         match self {
-            Number::Finite(d) => Number::Finite(d.round_dp(dp)),
-            Number::NegativeZero => Number::NegativeZero, // round(-0) = -0
-            Number::NaN => Number::NaN,
-            Number::PositiveInfinity => Number::PositiveInfinity,
-            Number::NegativeInfinity => Number::NegativeInfinity,
+            NumericValue::Rational(_) => unimplemented!("Rational round_dp not yet implemented"),
+            NumericValue::Decimal(d) => NumericValue::Decimal(d.round_dp(dp)),
+            NumericValue::BigDecimal(_) => {
+                unimplemented!("BigDecimal round_dp not yet implemented")
+            }
+            NumericValue::NegativeZero => NumericValue::NegativeZero, // round(-0) = -0
+            NumericValue::NaN => NumericValue::NaN,
+            NumericValue::PositiveInfinity => NumericValue::PositiveInfinity,
+            NumericValue::NegativeInfinity => NumericValue::NegativeInfinity,
         }
     }
 
-    pub fn trunc(self) -> Number {
+    pub fn trunc(self) -> NumericValue {
         match self {
-            Number::Finite(d) => Number::Finite(d.trunc()),
-            Number::NegativeZero => Number::NegativeZero, // trunc(-0) = -0
-            Number::NaN => Number::NaN,
-            Number::PositiveInfinity => Number::PositiveInfinity,
-            Number::NegativeInfinity => Number::NegativeInfinity,
+            NumericValue::Rational(r) => {
+                if r.is_integer() {
+                    NumericValue::Rational(r)
+                } else {
+                    NumericValue::Rational(r.trunc())
+                }
+            }
+            NumericValue::Decimal(d) => NumericValue::Decimal(d.trunc()),
+            NumericValue::BigDecimal(_) => unimplemented!("BigDecimal trunc not yet implemented"),
+            NumericValue::NegativeZero => NumericValue::NegativeZero, // trunc(-0) = -0
+            NumericValue::NaN => NumericValue::NaN,
+            NumericValue::PositiveInfinity => NumericValue::PositiveInfinity,
+            NumericValue::NegativeInfinity => NumericValue::NegativeInfinity,
         }
     }
 
-    pub fn sqrt(self) -> Number {
+    pub fn sqrt(self) -> NumericValue {
         match self {
-            Number::Finite(d) => {
+            NumericValue::Rational(_) => {
+                unimplemented!("Rational sqrt not yet implemented - need to upgrade to Decimal")
+            }
+            NumericValue::Decimal(d) => {
                 if d < Decimal::ZERO {
-                    Number::NaN // sqrt of negative number is NaN in JS
+                    NumericValue::NaN // sqrt of negative number is NaN in JS
                 } else if d.is_zero() {
-                    Number::Finite(Decimal::ZERO) // sqrt(0) = 0
+                    NumericValue::Decimal(Decimal::ZERO) // sqrt(0) = 0
                 } else {
                     // Babylonian method (Newton-Raphson) for square root
                     // Formula: x_{n+1} = (x_n + S/x_n) / 2
@@ -130,126 +142,151 @@ impl Number {
                         }
                     }
 
-                    Number::Finite(x)
+                    NumericValue::Decimal(x)
                 }
             }
-            Number::NegativeZero => Number::ZERO, // sqrt(-0) = +0 in JS
-            Number::NaN => Number::NaN,
-            Number::PositiveInfinity => Number::PositiveInfinity,
-            Number::NegativeInfinity => Number::NaN, // sqrt(-Infinity) = NaN
+            NumericValue::BigDecimal(_) => unimplemented!("BigDecimal sqrt not yet implemented"),
+            NumericValue::NegativeZero => NumericValue::ZERO, // sqrt(-0) = +0 in JS
+            NumericValue::NaN => NumericValue::NaN,
+            NumericValue::PositiveInfinity => NumericValue::PositiveInfinity,
+            NumericValue::NegativeInfinity => NumericValue::NaN, // sqrt(-Infinity) = NaN
         }
     }
 
-    pub fn pow(self, exponent: Number) -> Number {
+    pub fn pow(self, exponent: NumericValue) -> NumericValue {
         match (self, exponent) {
+            // Rational and BigDecimal - not fully implemented yet
+            (NumericValue::Rational(_), _) => unimplemented!("Rational pow not yet implemented"),
+            (NumericValue::BigDecimal(_), _) => {
+                unimplemented!("BigDecimal pow not yet implemented")
+            }
+            (_, NumericValue::Rational(_)) => {
+                unimplemented!("pow with Rational exponent not yet implemented")
+            }
+            (_, NumericValue::BigDecimal(_)) => {
+                unimplemented!("pow with BigDecimal exponent not yet implemented")
+            }
+
             // Handle NaN cases first
-            (Number::NaN, Number::Finite(exp)) if exp.is_zero() => Number::ONE, // NaN**0 = 1 in JS
-            (Number::NaN, _) => Number::NaN,
-            (_, Number::NaN) => Number::NaN,
+            (NumericValue::NaN, NumericValue::Decimal(exp)) if exp.is_zero() => NumericValue::ONE, // NaN**0 = 1 in JS
+            (NumericValue::NaN, _) => NumericValue::NaN,
+            (_, NumericValue::NaN) => NumericValue::NaN,
 
             // Handle 0**0 = 1 (special JS behavior)
-            (Number::Finite(base), Number::Finite(exp)) if base.is_zero() && exp.is_zero() => {
-                Number::ONE
+            (NumericValue::Decimal(base), NumericValue::Decimal(exp))
+                if base.is_zero() && exp.is_zero() =>
+            {
+                NumericValue::ONE
             }
-            (Number::NegativeZero, Number::Finite(exp)) if exp.is_zero() => Number::ONE,
-            (Number::Finite(base), Number::NegativeZero) if base.is_zero() => Number::ONE,
-            (Number::NegativeZero, Number::NegativeZero) => Number::ONE,
+            (NumericValue::NegativeZero, NumericValue::Decimal(exp)) if exp.is_zero() => {
+                NumericValue::ONE
+            }
+            (NumericValue::Decimal(base), NumericValue::NegativeZero) if base.is_zero() => {
+                NumericValue::ONE
+            }
+            (NumericValue::NegativeZero, NumericValue::NegativeZero) => NumericValue::ONE,
 
             // Handle zero base cases
-            (Number::Finite(base), Number::Finite(exp)) if base.is_zero() => {
+            (NumericValue::Decimal(base), NumericValue::Decimal(exp)) if base.is_zero() => {
                 if exp > Decimal::ZERO {
-                    Number::ZERO
+                    NumericValue::ZERO
                 } else if exp < Decimal::ZERO {
-                    Number::POSITIVE_INFINITY
+                    NumericValue::POSITIVE_INFINITY
                 } else {
-                    Number::ONE // 0**0 = 1
+                    NumericValue::ONE // 0**0 = 1
                 }
             }
-            (Number::NegativeZero, Number::Finite(exp)) => {
+            (NumericValue::NegativeZero, NumericValue::Decimal(exp)) => {
                 if exp > Decimal::ZERO {
                     // Check if exponent is odd or even
                     if exp.fract().is_zero() {
                         let exp_i64 = exp.to_i64().unwrap_or(0);
                         if exp_i64 % 2 == 1 {
-                            Number::NegativeZero // (-0)^odd = -0
+                            NumericValue::NegativeZero // (-0)^odd = -0
                         } else {
-                            Number::ZERO // (-0)^even = +0
+                            NumericValue::ZERO // (-0)^even = +0
                         }
                     } else {
-                        Number::ZERO // (-0)^fractional = +0
+                        NumericValue::ZERO // (-0)^fractional = +0
                     }
                 } else if exp < Decimal::ZERO {
-                    Number::NEGATIVE_INFINITY // (-0)^negative = -∞
+                    NumericValue::NEGATIVE_INFINITY // (-0)^negative = -∞
                 } else {
-                    Number::ONE // already handled above
+                    NumericValue::ONE // already handled above
                 }
             }
 
             // Handle infinity exponent cases
-            (Number::Finite(base), Number::PositiveInfinity) => {
+            (NumericValue::Decimal(base), NumericValue::PositiveInfinity) => {
                 let abs_base = base.abs();
                 if abs_base > Decimal::ONE {
-                    Number::POSITIVE_INFINITY
+                    NumericValue::POSITIVE_INFINITY
                 } else if abs_base < Decimal::ONE {
-                    Number::ZERO
+                    NumericValue::ZERO
                 } else {
-                    Number::ONE // 1**Infinity = 1
+                    NumericValue::ONE // 1**Infinity = 1
                 }
             }
-            (Number::Finite(base), Number::NegativeInfinity) => {
+            (NumericValue::Decimal(base), NumericValue::NegativeInfinity) => {
                 let abs_base = base.abs();
                 if abs_base > Decimal::ONE {
-                    Number::ZERO
+                    NumericValue::ZERO
                 } else if abs_base < Decimal::ONE {
-                    Number::POSITIVE_INFINITY
+                    NumericValue::POSITIVE_INFINITY
                 } else {
-                    Number::ONE // 1**(-Infinity) = 1
+                    NumericValue::ONE // 1**(-Infinity) = 1
                 }
             }
-            (Number::NegativeZero, Number::PositiveInfinity) => Number::ZERO,
-            (Number::NegativeZero, Number::NegativeInfinity) => Number::POSITIVE_INFINITY,
+            (NumericValue::NegativeZero, NumericValue::PositiveInfinity) => NumericValue::ZERO,
+            (NumericValue::NegativeZero, NumericValue::NegativeInfinity) => {
+                NumericValue::POSITIVE_INFINITY
+            }
 
             // Handle infinity base cases
-            (Number::PositiveInfinity, Number::Finite(exp)) => {
+            (NumericValue::PositiveInfinity, NumericValue::Decimal(exp)) => {
                 if exp > Decimal::ZERO {
-                    Number::POSITIVE_INFINITY
+                    NumericValue::POSITIVE_INFINITY
                 } else if exp < Decimal::ZERO {
-                    Number::ZERO
+                    NumericValue::ZERO
                 } else {
-                    Number::ONE // Infinity**0 = 1
+                    NumericValue::ONE // Infinity**0 = 1
                 }
             }
-            (Number::NegativeInfinity, Number::Finite(exp)) => {
+            (NumericValue::NegativeInfinity, NumericValue::Decimal(exp)) => {
                 if exp > Decimal::ZERO {
                     // Check if exponent is odd or even
                     if exp.fract().is_zero() {
                         let exp_i64 = exp.to_i64().unwrap_or(0);
                         if exp_i64 % 2 == 1 {
-                            Number::NEGATIVE_INFINITY
+                            NumericValue::NEGATIVE_INFINITY
                         } else {
-                            Number::POSITIVE_INFINITY
+                            NumericValue::POSITIVE_INFINITY
                         }
                     } else {
-                        Number::NaN // Fractional exponent of negative number
+                        NumericValue::NaN // Fractional exponent of negative number
                     }
                 } else if exp < Decimal::ZERO {
-                    Number::ZERO
+                    NumericValue::ZERO
                 } else {
-                    Number::ONE // (-Infinity)**0 = 1
+                    NumericValue::ONE // (-Infinity)**0 = 1
                 }
             }
 
             // Handle infinity ** infinity cases
-            (Number::PositiveInfinity, Number::PositiveInfinity) => Number::POSITIVE_INFINITY,
-            (Number::PositiveInfinity, Number::NegativeInfinity) => Number::ZERO,
-            (Number::NegativeInfinity, Number::PositiveInfinity) => Number::POSITIVE_INFINITY,
-            (Number::NegativeInfinity, Number::NegativeInfinity) => Number::ZERO,
+            (NumericValue::PositiveInfinity, NumericValue::PositiveInfinity) => {
+                NumericValue::POSITIVE_INFINITY
+            }
+            (NumericValue::PositiveInfinity, NumericValue::NegativeInfinity) => NumericValue::ZERO,
+            (NumericValue::NegativeInfinity, NumericValue::PositiveInfinity) => {
+                NumericValue::POSITIVE_INFINITY
+            }
+            (NumericValue::NegativeInfinity, NumericValue::NegativeInfinity) => NumericValue::ZERO,
 
             // Handle finite base and exponent
-            (Number::Finite(base), Number::Finite(exp)) => {
+            (NumericValue::Decimal(base), NumericValue::Decimal(exp)) => {
                 // Check for negative base with fractional exponent
                 if base < Decimal::ZERO && !exp.fract().is_zero() {
-                    return Number::NaN;
+                    return NumericValue::NaN;
                 }
 
                 // For integer exponents, use repeated multiplication for better precision
@@ -270,7 +307,7 @@ impl Number {
                             current_exp /= 2;
                         }
 
-                        return Number::Finite(result);
+                        return NumericValue::Decimal(result);
                     }
                 }
 
@@ -297,332 +334,640 @@ impl Number {
                             current_exp /= 2;
                         }
 
-                        Number::Finite(Decimal::ONE / result)
+                        NumericValue::Decimal(Decimal::ONE / result)
                     } else {
                         // Very large positive exponent - this will likely overflow
                         // For now, return positive infinity for very large results
-                        Number::POSITIVE_INFINITY
+                        NumericValue::POSITIVE_INFINITY
                     }
                 } else {
                     // Handle special case of 0.5 exponent (square root)
                     if exp == Decimal::from_str("0.5").unwrap_or(Decimal::ZERO) {
-                        return Number::Finite(base).sqrt();
+                        return NumericValue::Decimal(base).sqrt();
                     }
 
                     // Fractional exponent - use a^b = e^(b * ln(a))
                     // TODO: For high precision, implement ln and exp with Decimal directly
-                    let ln_base = Number::Finite(base).log();
-                    let exp_arg = Number::Finite(exp) * ln_base;
+                    let ln_base = NumericValue::Decimal(base).log();
+                    let exp_arg = NumericValue::Decimal(exp) * ln_base;
                     exp_arg.exp()
                 }
             }
 
             // Handle cases where exponent is NegativeZero
-            (Number::Finite(_), Number::NegativeZero) => Number::ONE, // x^(-0) = 1
-            (Number::PositiveInfinity, Number::NegativeZero) => Number::ONE, // (+∞)^(-0) = 1
-            (Number::NegativeInfinity, Number::NegativeZero) => Number::ONE, // (-∞)^(-0) = 1
+            (NumericValue::Decimal(_), NumericValue::NegativeZero) => NumericValue::ONE, // x^(-0) = 1
+            (NumericValue::PositiveInfinity, NumericValue::NegativeZero) => NumericValue::ONE, // (+∞)^(-0) = 1
+            (NumericValue::NegativeInfinity, NumericValue::NegativeZero) => NumericValue::ONE, // (-∞)^(-0) = 1
         }
     }
 
-    pub fn log(self) -> Number {
+    pub fn log(self) -> NumericValue {
         // TODO: For high precision, implement using Newton's method or Taylor series:
         // ln(x) can be computed using the series: ln(1+u) = u - u²/2 + u³/3 - u⁴/4 + ...
         // Or use Newton's method: find y such that e^y = x
         // For now, using f64 conversion for compatibility
         match self {
-            Number::Finite(d) => {
+            NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
+                let f = self.to_f64();
+                if f <= 0.0 {
+                    if f == 0.0 {
+                        NumericValue::NegativeInfinity
+                    } else {
+                        NumericValue::NaN
+                    }
+                } else {
+                    NumericValue::from(f.ln())
+                }
+            }
+            NumericValue::Decimal(d) => {
                 if d <= Decimal::ZERO {
                     if d.is_zero() {
-                        Number::NegativeInfinity
+                        NumericValue::NegativeInfinity
                     } else {
-                        Number::NaN // log of negative number
+                        NumericValue::NaN // log of negative number
                     }
                 } else {
                     let f = d.to_f64().unwrap_or(0.0);
-                    Number::from(f.ln())
+                    NumericValue::from(f.ln())
                 }
             }
-            Number::NegativeZero => Number::NegativeInfinity, // log(-0) = -∞
-            Number::NaN => Number::NaN,
-            Number::PositiveInfinity => Number::PositiveInfinity,
-            Number::NegativeInfinity => Number::NaN,
+            NumericValue::NegativeZero => NumericValue::NegativeInfinity, // log(-0) = -∞
+            NumericValue::NaN => NumericValue::NaN,
+            NumericValue::PositiveInfinity => NumericValue::PositiveInfinity,
+            NumericValue::NegativeInfinity => NumericValue::NaN,
         }
     }
 
-    pub fn log10(self) -> Number {
+    pub fn log10(self) -> NumericValue {
         // TODO: For high precision, implement as log(x) / log(10) using Decimal
         // For now, using f64 conversion for compatibility
         match self {
-            Number::Finite(d) => {
+            NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
+                let f = self.to_f64();
+                if f <= 0.0 {
+                    if f == 0.0 {
+                        NumericValue::NegativeInfinity
+                    } else {
+                        NumericValue::NaN
+                    }
+                } else {
+                    NumericValue::from(f.log10())
+                }
+            }
+            NumericValue::Decimal(d) => {
                 if d <= Decimal::ZERO {
                     if d.is_zero() {
-                        Number::NegativeInfinity
+                        NumericValue::NegativeInfinity
                     } else {
-                        Number::NaN // log of negative number
+                        NumericValue::NaN // log of negative number
                     }
                 } else {
                     let f = d.to_f64().unwrap_or(0.0);
-                    Number::from(f.log10())
+                    NumericValue::from(f.log10())
                 }
             }
-            Number::NegativeZero => Number::NegativeInfinity, // log10(-0) = -∞
-            Number::NaN => Number::NaN,
-            Number::PositiveInfinity => Number::PositiveInfinity,
-            Number::NegativeInfinity => Number::NaN,
+            NumericValue::NegativeZero => NumericValue::NegativeInfinity, // log10(-0) = -∞
+            NumericValue::NaN => NumericValue::NaN,
+            NumericValue::PositiveInfinity => NumericValue::PositiveInfinity,
+            NumericValue::NegativeInfinity => NumericValue::NaN,
         }
     }
 
-    pub fn log2(self) -> Number {
+    pub fn log2(self) -> NumericValue {
         // TODO: For high precision, implement as log(x) / log(2) using Decimal
         // For now, using f64 conversion for compatibility
         match self {
-            Number::Finite(d) => {
+            NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
+                let f = self.to_f64();
+                if f <= 0.0 {
+                    if f == 0.0 {
+                        NumericValue::NegativeInfinity
+                    } else {
+                        NumericValue::NaN
+                    }
+                } else {
+                    NumericValue::from(f.log2())
+                }
+            }
+            NumericValue::Decimal(d) => {
                 if d <= Decimal::ZERO {
                     if d.is_zero() {
-                        Number::NegativeInfinity
+                        NumericValue::NegativeInfinity
                     } else {
-                        Number::NaN // log of negative number
+                        NumericValue::NaN // log of negative number
                     }
                 } else {
                     let f = d.to_f64().unwrap_or(0.0);
-                    Number::from(f.log2())
+                    NumericValue::from(f.log2())
                 }
             }
-            Number::NegativeZero => Number::NegativeInfinity, // log2(-0) = -∞
-            Number::NaN => Number::NaN,
-            Number::PositiveInfinity => Number::PositiveInfinity,
-            Number::NegativeInfinity => Number::NaN,
+            NumericValue::NegativeZero => NumericValue::NegativeInfinity, // log2(-0) = -∞
+            NumericValue::NaN => NumericValue::NaN,
+            NumericValue::PositiveInfinity => NumericValue::PositiveInfinity,
+            NumericValue::NegativeInfinity => NumericValue::NaN,
         }
     }
 
-    pub fn exp(self) -> Number {
+    pub fn exp(self) -> NumericValue {
         // TODO: For high precision, implement using Taylor series with Decimal:
         // e^x = 1 + x + x²/2! + x³/3! + x⁴/4! + ...
         // For now, using f64 conversion for compatibility
         match self {
-            Number::Finite(d) => {
+            NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
+                let f = self.to_f64();
+                NumericValue::from(f.exp())
+            }
+            NumericValue::Decimal(d) => {
                 let f = d.to_f64().unwrap_or(0.0);
                 let result = f.exp();
-                Number::from(result)
+                NumericValue::from(result)
             }
-            Number::NegativeZero => Number::ONE, // exp(-0) = 1
-            Number::NaN => Number::NaN,
-            Number::PositiveInfinity => Number::PositiveInfinity,
-            Number::NegativeInfinity => Number::ZERO,
+            NumericValue::NegativeZero => NumericValue::ONE, // exp(-0) = 1
+            NumericValue::NaN => NumericValue::NaN,
+            NumericValue::PositiveInfinity => NumericValue::PositiveInfinity,
+            NumericValue::NegativeInfinity => NumericValue::ZERO,
         }
     }
 
-    pub fn sin(self) -> Number {
+    pub fn sin(self) -> NumericValue {
         // TODO: For high precision, implement using Taylor series with Decimal:
         // sin(x) = x - x³/3! + x⁵/5! - x⁷/7! + ...
         // This would require implementing factorial and power series with Decimal precision
         // For now, using f64 conversion for compatibility
         match self {
-            Number::Finite(d) => {
-                let f = d.to_f64().unwrap_or(0.0);
-                Number::from(f.sin())
+            NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
+                let f = self.to_f64();
+                NumericValue::from(f.sin())
             }
-            Number::NegativeZero => Number::NegativeZero, // sin(-0) = -0
-            Number::NaN => Number::NaN,
-            Number::PositiveInfinity | Number::NegativeInfinity => Number::NaN,
+            NumericValue::Decimal(d) => {
+                let f = d.to_f64().unwrap_or(0.0);
+                NumericValue::from(f.sin())
+            }
+            NumericValue::NegativeZero => NumericValue::NegativeZero, // sin(-0) = -0
+            NumericValue::NaN => NumericValue::NaN,
+            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => NumericValue::NaN,
         }
     }
 
-    pub fn cos(self) -> Number {
+    pub fn cos(self) -> NumericValue {
         // TODO: For high precision, implement using Taylor series with Decimal:
         // cos(x) = 1 - x²/2! + x⁴/4! - x⁶/6! + ...
         // This would require implementing factorial and power series with Decimal precision
         // For now, using f64 conversion for compatibility
         match self {
-            Number::Finite(d) => {
-                let f = d.to_f64().unwrap_or(0.0);
-                Number::from(f.cos())
+            NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
+                let f = self.to_f64();
+                NumericValue::from(f.cos())
             }
-            Number::NegativeZero => Number::ONE, // cos(-0) = 1
-            Number::NaN => Number::NaN,
-            Number::PositiveInfinity | Number::NegativeInfinity => Number::NaN,
+            NumericValue::Decimal(d) => {
+                let f = d.to_f64().unwrap_or(0.0);
+                NumericValue::from(f.cos())
+            }
+            NumericValue::NegativeZero => NumericValue::ONE, // cos(-0) = 1
+            NumericValue::NaN => NumericValue::NaN,
+            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => NumericValue::NaN,
         }
     }
 
-    pub fn tan(self) -> Number {
+    pub fn tan(self) -> NumericValue {
         // TODO: For high precision, implement as sin(x)/cos(x) using Decimal Taylor series
         // Need to handle asymptotes where cos(x) = 0
         // For now, using f64 conversion for compatibility
         match self {
-            Number::Finite(d) => {
-                let f = d.to_f64().unwrap_or(0.0);
-                Number::from(f.tan())
+            NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
+                let f = self.to_f64();
+                NumericValue::from(f.tan())
             }
-            Number::NegativeZero => Number::NegativeZero, // tan(-0) = -0
-            Number::NaN => Number::NaN,
-            Number::PositiveInfinity | Number::NegativeInfinity => Number::NaN,
+            NumericValue::Decimal(d) => {
+                let f = d.to_f64().unwrap_or(0.0);
+                NumericValue::from(f.tan())
+            }
+            NumericValue::NegativeZero => NumericValue::NegativeZero, // tan(-0) = -0
+            NumericValue::NaN => NumericValue::NaN,
+            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => NumericValue::NaN,
         }
     }
 
-    pub fn asin(self) -> Number {
+    pub fn asin(self) -> NumericValue {
         // TODO: For high precision, implement using Taylor series with Decimal:
         // asin(x) = x + x³/6 + 3x⁵/40 + ... (for |x| < 1)
         // Or use Newton's method: find y such that sin(y) = x
         // For now, using f64 conversion for compatibility
         match self {
-            Number::Finite(d) => {
-                let f = d.to_f64().unwrap_or(0.0);
+            NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
+                let f = self.to_f64();
                 if f.abs() > 1.0 {
-                    Number::NaN
+                    NumericValue::NaN
                 } else {
-                    Number::from(f.asin())
+                    NumericValue::from(f.asin())
                 }
             }
-            Number::NegativeZero => Number::NegativeZero, // asin(-0) = -0
-            Number::NaN => Number::NaN,
-            Number::PositiveInfinity | Number::NegativeInfinity => Number::NaN,
+            NumericValue::Decimal(d) => {
+                let f = d.to_f64().unwrap_or(0.0);
+                if f.abs() > 1.0 {
+                    NumericValue::NaN
+                } else {
+                    NumericValue::from(f.asin())
+                }
+            }
+            NumericValue::NegativeZero => NumericValue::NegativeZero, // asin(-0) = -0
+            NumericValue::NaN => NumericValue::NaN,
+            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => NumericValue::NaN,
         }
     }
 
-    pub fn acos(self) -> Number {
+    pub fn acos(self) -> NumericValue {
         // TODO: For high precision, implement using relationship acos(x) = π/2 - asin(x)
         // Or use Newton's method: find y such that cos(y) = x
         // For now, using f64 conversion for compatibility
         match self {
-            Number::Finite(d) => {
-                let f = d.to_f64().unwrap_or(0.0);
+            NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
+                let f = self.to_f64();
                 if f.abs() > 1.0 {
-                    Number::NaN
+                    NumericValue::NaN
                 } else {
-                    Number::from(f.acos())
+                    NumericValue::from(f.acos())
                 }
             }
-            Number::NegativeZero => Number::from(std::f64::consts::FRAC_PI_2), // acos(-0) = π/2
-            Number::NaN => Number::NaN,
-            Number::PositiveInfinity | Number::NegativeInfinity => Number::NaN,
+            NumericValue::Decimal(d) => {
+                let f = d.to_f64().unwrap_or(0.0);
+                if f.abs() > 1.0 {
+                    NumericValue::NaN
+                } else {
+                    NumericValue::from(f.acos())
+                }
+            }
+            NumericValue::NegativeZero => NumericValue::from(std::f64::consts::FRAC_PI_2), // acos(-0) = π/2
+            NumericValue::NaN => NumericValue::NaN,
+            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => NumericValue::NaN,
         }
     }
 
-    pub fn atan(self) -> Number {
+    pub fn atan(self) -> NumericValue {
         // TODO: For high precision, implement using Taylor series with Decimal:
         // atan(x) = x - x³/3 + x⁵/5 - x⁷/7 + ... (for |x| < 1)
         // For |x| >= 1, use atan(x) = π/2 - atan(1/x)
         // For now, using f64 conversion for compatibility
         match self {
-            Number::Finite(d) => {
-                let f = d.to_f64().unwrap_or(0.0);
-                Number::from(f.atan())
+            NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
+                let f = self.to_f64();
+                NumericValue::from(f.atan())
             }
-            Number::NegativeZero => Number::NegativeZero, // atan(-0) = -0
-            Number::NaN => Number::NaN,
-            Number::PositiveInfinity => Number::from(std::f64::consts::FRAC_PI_2),
-            Number::NegativeInfinity => Number::from(-std::f64::consts::FRAC_PI_2),
+            NumericValue::Decimal(d) => {
+                let f = d.to_f64().unwrap_or(0.0);
+                NumericValue::from(f.atan())
+            }
+            NumericValue::NegativeZero => NumericValue::NegativeZero, // atan(-0) = -0
+            NumericValue::NaN => NumericValue::NaN,
+            NumericValue::PositiveInfinity => NumericValue::from(std::f64::consts::FRAC_PI_2),
+            NumericValue::NegativeInfinity => NumericValue::from(-std::f64::consts::FRAC_PI_2),
         }
     }
 
-    pub fn atan2(self, x: Number) -> Number {
+    pub fn atan2(self, x: NumericValue) -> NumericValue {
         // TODO: For high precision, implement using Decimal arithmetic:
         // atan2(y, x) handles all quadrants and edge cases
         // Would need to implement atan with Decimal and handle all JS edge cases
         // For now, using f64 conversion for compatibility
         match (self, x) {
-            (Number::Finite(y), Number::Finite(x_val)) => {
+            (NumericValue::Rational(_), _) | (_, NumericValue::Rational(_)) => {
+                unimplemented!("atan2 with Rational not yet implemented")
+            }
+            (NumericValue::BigDecimal(_), _) | (_, NumericValue::BigDecimal(_)) => {
+                unimplemented!("atan2 with BigDecimal not yet implemented")
+            }
+            (NumericValue::Decimal(y), NumericValue::Decimal(x_val)) => {
                 let y_f = y.to_f64().unwrap_or(0.0);
                 let x_f = x_val.to_f64().unwrap_or(0.0);
-                Number::from(y_f.atan2(x_f))
+                NumericValue::from(y_f.atan2(x_f))
             }
-            (Number::NegativeZero, Number::Finite(x_val)) => {
+            (NumericValue::NegativeZero, NumericValue::Decimal(x_val)) => {
                 let x_f = x_val.to_f64().unwrap_or(0.0);
-                Number::from((-0.0_f64).atan2(x_f))
+                NumericValue::from((-0.0_f64).atan2(x_f))
             }
-            (Number::Finite(y), Number::NegativeZero) => {
+            (NumericValue::Decimal(y), NumericValue::NegativeZero) => {
                 let y_f = y.to_f64().unwrap_or(0.0);
-                Number::from(y_f.atan2(-0.0_f64))
+                NumericValue::from(y_f.atan2(-0.0_f64))
             }
-            (Number::NegativeZero, Number::NegativeZero) => {
-                Number::from((-0.0_f64).atan2(-0.0_f64))
+            (NumericValue::NegativeZero, NumericValue::NegativeZero) => {
+                NumericValue::from((-0.0_f64).atan2(-0.0_f64))
             }
-            (Number::NaN, _) | (_, Number::NaN) => Number::NaN,
+            (NumericValue::NaN, _) | (_, NumericValue::NaN) => NumericValue::NaN,
             // Handle infinity cases according to JS Math.atan2
-            (Number::PositiveInfinity, Number::PositiveInfinity) => {
-                Number::from(std::f64::consts::FRAC_PI_4)
+            (NumericValue::PositiveInfinity, NumericValue::PositiveInfinity) => {
+                NumericValue::from(std::f64::consts::FRAC_PI_4)
             }
-            (Number::PositiveInfinity, Number::NegativeInfinity) => {
-                Number::from(3.0 * std::f64::consts::FRAC_PI_4)
+            (NumericValue::PositiveInfinity, NumericValue::NegativeInfinity) => {
+                NumericValue::from(3.0 * std::f64::consts::FRAC_PI_4)
             }
-            (Number::NegativeInfinity, Number::PositiveInfinity) => {
-                Number::from(-std::f64::consts::FRAC_PI_4)
+            (NumericValue::NegativeInfinity, NumericValue::PositiveInfinity) => {
+                NumericValue::from(-std::f64::consts::FRAC_PI_4)
             }
-            (Number::NegativeInfinity, Number::NegativeInfinity) => {
-                Number::from(-3.0 * std::f64::consts::FRAC_PI_4)
+            (NumericValue::NegativeInfinity, NumericValue::NegativeInfinity) => {
+                NumericValue::from(-3.0 * std::f64::consts::FRAC_PI_4)
             }
-            (Number::PositiveInfinity, _) => Number::from(std::f64::consts::FRAC_PI_2),
-            (Number::NegativeInfinity, _) => Number::from(-std::f64::consts::FRAC_PI_2),
-            (_, Number::PositiveInfinity) => Number::from(0.0),
-            (Number::Finite(y), Number::NegativeInfinity) => {
+            (NumericValue::PositiveInfinity, _) => NumericValue::from(std::f64::consts::FRAC_PI_2),
+            (NumericValue::NegativeInfinity, _) => NumericValue::from(-std::f64::consts::FRAC_PI_2),
+            (_, NumericValue::PositiveInfinity) => NumericValue::from(0.0),
+            (NumericValue::Decimal(y), NumericValue::NegativeInfinity) => {
                 if y >= Decimal::ZERO {
-                    Number::from(std::f64::consts::PI)
+                    NumericValue::from(std::f64::consts::PI)
                 } else {
-                    Number::from(-std::f64::consts::PI)
+                    NumericValue::from(-std::f64::consts::PI)
                 }
             }
-            (Number::NegativeZero, Number::NegativeInfinity) => Number::from(-std::f64::consts::PI),
+            (NumericValue::NegativeZero, NumericValue::NegativeInfinity) => {
+                NumericValue::from(-std::f64::consts::PI)
+            }
         }
     }
 
-    pub fn increment(self) -> Number {
-        self + Number::ONE
+    pub fn increment(self) -> NumericValue {
+        self + NumericValue::ONE
     }
 
-    pub fn decrement(self) -> Number {
-        self - Number::ONE
+    pub fn decrement(self) -> NumericValue {
+        self - NumericValue::ONE
     }
 
     pub fn to_i32(&self) -> Option<i32> {
         match self {
-            Number::Finite(d) => d.to_i32(),
-            Number::NegativeZero => Some(0),
-            Number::NaN => None,
-            Number::PositiveInfinity => None,
-            Number::NegativeInfinity => None,
+            NumericValue::Rational(r) => {
+                if r.is_integer() {
+                    r.to_integer().to_i32()
+                } else {
+                    None
+                }
+            }
+            NumericValue::Decimal(d) => d.to_i32(),
+            NumericValue::BigDecimal(_) => unimplemented!("BigDecimal to_i32 not yet implemented"),
+            NumericValue::NegativeZero => Some(0),
+            NumericValue::NaN => None,
+            NumericValue::PositiveInfinity => None,
+            NumericValue::NegativeInfinity => None,
         }
     }
 
     pub fn to_u32(&self) -> Option<u32> {
         match self {
-            Number::Finite(d) => d.to_u32(),
-            Number::NegativeZero => Some(0),
-            Number::NaN => None,
-            Number::PositiveInfinity => None,
-            Number::NegativeInfinity => None,
+            NumericValue::Rational(r) => {
+                if r.is_integer() {
+                    r.to_integer().to_u32()
+                } else {
+                    None
+                }
+            }
+            NumericValue::Decimal(d) => d.to_u32(),
+            NumericValue::BigDecimal(_) => unimplemented!("BigDecimal to_u32 not yet implemented"),
+            NumericValue::NegativeZero => Some(0),
+            NumericValue::NaN => None,
+            NumericValue::PositiveInfinity => None,
+            NumericValue::NegativeInfinity => None,
         }
     }
 
     pub fn to_i64(&self) -> Option<i64> {
         match self {
-            Number::Finite(d) => d.to_i64(),
-            Number::NegativeZero => Some(0),
-            Number::NaN => None,
-            Number::PositiveInfinity => None,
-            Number::NegativeInfinity => None,
+            NumericValue::Rational(r) => {
+                if r.is_integer() {
+                    Some(*r.numer())
+                } else {
+                    None
+                }
+            }
+            NumericValue::Decimal(d) => d.to_i64(),
+            NumericValue::BigDecimal(_) => unimplemented!("BigDecimal to_i64 not yet implemented"),
+            NumericValue::NegativeZero => Some(0),
+            NumericValue::NaN => None,
+            NumericValue::PositiveInfinity => None,
+            NumericValue::NegativeInfinity => None,
         }
     }
 
     pub fn to_f64(&self) -> f64 {
         match self {
-            Number::Finite(d) => d.to_f64().expect("Decimal always fits in f64"),
-            Number::NegativeZero => -0.0,
-            Number::NaN => f64::NAN,
-            Number::PositiveInfinity => f64::INFINITY,
-            Number::NegativeInfinity => f64::NEG_INFINITY,
+            NumericValue::Rational(r) => {
+                r.numer().to_f64().unwrap_or(0.0) / r.denom().to_f64().unwrap_or(1.0)
+            }
+            NumericValue::Decimal(d) => d.to_f64().expect("Decimal always fits in f64"),
+            NumericValue::BigDecimal(bd) => {
+                // BigDecimal to f64 conversion may lose precision
+                bd.to_string().parse().unwrap_or(0.0)
+            }
+            NumericValue::NegativeZero => -0.0,
+            NumericValue::NaN => f64::NAN,
+            NumericValue::PositiveInfinity => f64::INFINITY,
+            NumericValue::NegativeInfinity => f64::NEG_INFINITY,
         }
     }
 
     pub fn to_decimal(&self) -> Option<Decimal> {
         match self {
-            Number::Finite(d) => Some(*d),
-            Number::NegativeZero => Some(Decimal::ZERO),
+            NumericValue::Rational(r) => {
+                // Try to convert rational to decimal
+                // This may lose precision for repeating decimals
+                let f = r.numer().to_f64()? / r.denom().to_f64()?;
+                Decimal::from_f64(f)
+            }
+            NumericValue::Decimal(d) => Some(*d),
+            NumericValue::BigDecimal(_) => None, // TODO: implement conversion
+            NumericValue::NegativeZero => Some(Decimal::ZERO),
             _ => None,
         }
     }
 
-    /// Convert to primitive value (used in JS type coercion)
+    // /// Convert to primitive value (used in JS type coercion)
+    // pub fn to_primitive(&self) -> NumericValue {
+    //     self.clone() // Numbers are already primitive
+    // }
+}
+
+// Add this implementation block for Number in math.rs
+impl Number {
+    // Mathematical functions - delegating to NumericValue
+
+    pub fn abs(self) -> Number {
+        Number {
+            value: self.value.abs(),
+            approximated: self.approximated,
+        }
+    }
+
+    pub fn floor(self) -> Number {
+        Number {
+            value: self.value.floor(),
+            approximated: self.approximated,
+        }
+    }
+
+    pub fn ceil(self) -> Number {
+        Number {
+            value: self.value.ceil(),
+            approximated: self.approximated,
+        }
+    }
+
+    pub fn round(self) -> Number {
+        Number {
+            value: self.value.round(),
+            approximated: self.approximated,
+        }
+    }
+
+    pub fn round_dp(self, dp: u32) -> Number {
+        Number {
+            value: self.value.round_dp(dp),
+            approximated: self.approximated,
+        }
+    }
+
+    pub fn trunc(self) -> Number {
+        Number {
+            value: self.value.trunc(),
+            approximated: self.approximated,
+        }
+    }
+
+    pub fn sqrt(self) -> Number {
+        Number {
+            value: self.value.sqrt(),
+            approximated: true, // sqrt is generally approximated
+        }
+    }
+
+    pub fn pow(self, exponent: Number) -> Number {
+        let approximated =
+            self.approximated || exponent.approximated || self.is_transcendental_pow(&exponent);
+        Number {
+            value: self.value.pow(exponent.value),
+            approximated,
+        }
+    }
+
+    // Transcendental functions - always mark as approximated
+    pub fn log(self) -> Number {
+        Number {
+            value: self.value.log(),
+            approximated: true,
+        }
+    }
+
+    pub fn log10(self) -> Number {
+        Number {
+            value: self.value.log10(),
+            approximated: true,
+        }
+    }
+
+    pub fn log2(self) -> Number {
+        Number {
+            value: self.value.log2(),
+            approximated: true,
+        }
+    }
+
+    pub fn exp(self) -> Number {
+        Number {
+            value: self.value.exp(),
+            approximated: true,
+        }
+    }
+
+    pub fn sin(self) -> Number {
+        Number {
+            value: self.value.sin(),
+            approximated: true,
+        }
+    }
+
+    pub fn cos(self) -> Number {
+        Number {
+            value: self.value.cos(),
+            approximated: true,
+        }
+    }
+
+    pub fn tan(self) -> Number {
+        Number {
+            value: self.value.tan(),
+            approximated: true,
+        }
+    }
+
+    pub fn asin(self) -> Number {
+        Number {
+            value: self.value.asin(),
+            approximated: true,
+        }
+    }
+
+    pub fn acos(self) -> Number {
+        Number {
+            value: self.value.acos(),
+            approximated: true,
+        }
+    }
+
+    pub fn atan(self) -> Number {
+        Number {
+            value: self.value.atan(),
+            approximated: true,
+        }
+    }
+
+    pub fn atan2(self, x: Number) -> Number {
+        Number {
+            value: self.value.atan2(x.value),
+            approximated: true,
+        }
+    }
+
+    pub fn increment(self) -> Number {
+        Number {
+            value: self.value.increment(),
+            approximated: self.approximated,
+        }
+    }
+
+    pub fn decrement(self) -> Number {
+        Number {
+            value: self.value.decrement(),
+            approximated: self.approximated,
+        }
+    }
+
+    // Conversion methods
+    pub fn to_i32(&self) -> Option<i32> {
+        self.value.to_i32()
+    }
+
+    pub fn to_u32(&self) -> Option<u32> {
+        self.value.to_u32()
+    }
+
+    pub fn to_i64(&self) -> Option<i64> {
+        self.value.to_i64()
+    }
+
+    pub fn to_f64(&self) -> f64 {
+        self.value.to_f64()
+    }
+
+    pub fn to_decimal(&self) -> Option<Decimal> {
+        self.value.to_decimal()
+    }
+
     pub fn to_primitive(&self) -> Number {
         self.clone() // Numbers are already primitive
+    }
+
+    // Helper to determine if a pow operation is transcendental
+    fn is_transcendental_pow(&self, exponent: &Number) -> bool {
+        // Integer powers are exact, fractional powers are approximated
+        match &exponent.value {
+            NumericValue::Decimal(d) => !d.fract().is_zero(),
+            NumericValue::Rational(r) => !r.is_integer(),
+            _ => false,
+        }
     }
 }

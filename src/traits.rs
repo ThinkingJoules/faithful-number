@@ -5,6 +5,7 @@ use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::hash::{Hash, Hasher};
 
 use crate::Number;
+use crate::core::NumericValue;
 
 // num_traits for mathematical operations
 use num_traits::{FromPrimitive, Num, One, Signed, ToPrimitive, Zero};
@@ -16,9 +17,11 @@ impl Zero for Number {
     }
 
     fn is_zero(&self) -> bool {
-        match self {
-            Number::Finite(d) => d.is_zero(),
-            Number::NegativeZero => true,
+        match &self.value {
+            NumericValue::Rational(r) => r.is_zero(),
+            NumericValue::Decimal(d) => d.is_zero(),
+            NumericValue::BigDecimal(bd) => bd.is_zero(),
+            NumericValue::NegativeZero => true,
             _ => false,
         }
     }
@@ -45,8 +48,9 @@ impl Signed for Number {
     }
 
     fn signum(&self) -> Self {
-        match self {
-            Number::Finite(d) => {
+        match &self.value {
+            NumericValue::Rational(_r) => unimplemented!("Rational signum not yet implemented"),
+            NumericValue::Decimal(d) => {
                 if d.is_zero() {
                     Number::zero()
                 } else if *d > Decimal::ZERO {
@@ -55,27 +59,32 @@ impl Signed for Number {
                     -Number::one()
                 }
             }
-            Number::NegativeZero => Number::NegativeZero, // signum(-0) = -0
-            Number::NaN => Number::NaN,
-            Number::PositiveInfinity => Number::one(),
-            Number::NegativeInfinity => -Number::one(),
+            NumericValue::BigDecimal(_) => unimplemented!("BigDecimal signum not yet implemented"),
+            NumericValue::NegativeZero => Number::neg_zero(), // signum(-0) = -0
+            NumericValue::NaN => Number::nan(),
+            NumericValue::PositiveInfinity => Number::one(),
+            NumericValue::NegativeInfinity => -Number::one(),
         }
     }
 
     fn is_positive(&self) -> bool {
-        match self {
-            Number::Finite(d) => d.is_sign_positive(),
-            Number::NegativeZero => false, // -0 is not positive
-            Number::PositiveInfinity => true,
+        match &self.value {
+            NumericValue::Rational(r) => r.is_positive(),
+            NumericValue::Decimal(d) => d.is_sign_positive(),
+            NumericValue::BigDecimal(bd) => bd.is_positive(),
+            NumericValue::NegativeZero => false, // -0 is not positive
+            NumericValue::PositiveInfinity => true,
             _ => false,
         }
     }
 
     fn is_negative(&self) -> bool {
-        match self {
-            Number::Finite(d) => d.is_sign_negative(),
-            Number::NegativeZero => true, // -0 is negative
-            Number::NegativeInfinity => true,
+        match &self.value {
+            NumericValue::Rational(r) => r.is_negative(),
+            NumericValue::Decimal(d) => d.is_sign_negative(),
+            NumericValue::BigDecimal(bd) => bd.is_negative(),
+            NumericValue::NegativeZero => true, // -0 is negative
+            NumericValue::NegativeInfinity => true,
             _ => false,
         }
     }
@@ -104,17 +113,33 @@ impl Num for Number {
 
 impl ToPrimitive for Number {
     fn to_i64(&self) -> Option<i64> {
-        match self {
-            Number::Finite(d) => d.to_i64(),
-            Number::NegativeZero => Some(0),
+        match &self.value {
+            NumericValue::Rational(r) => {
+                if r.is_integer() {
+                    Some(*r.numer())
+                } else {
+                    None
+                }
+            }
+            NumericValue::Decimal(d) => d.to_i64(),
+            NumericValue::BigDecimal(_) => unimplemented!("BigDecimal to_i64 not yet implemented"),
+            NumericValue::NegativeZero => Some(0),
             _ => None,
         }
     }
 
     fn to_u64(&self) -> Option<u64> {
-        match self {
-            Number::Finite(d) => d.to_u64(),
-            Number::NegativeZero => Some(0),
+        match &self.value {
+            NumericValue::Rational(r) => {
+                if r.is_integer() && r.is_positive() {
+                    r.numer().to_u64()
+                } else {
+                    None
+                }
+            }
+            NumericValue::Decimal(d) => d.to_u64(),
+            NumericValue::BigDecimal(_) => unimplemented!("BigDecimal to_u64 not yet implemented"),
+            NumericValue::NegativeZero => Some(0),
             _ => None,
         }
     }
@@ -141,33 +166,37 @@ impl FromPrimitive for Number {
 // Display with JS string conversion semantics
 impl Display for Number {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        match self {
-            Number::Finite(d) => write!(f, "{}", d),
-            Number::NegativeZero => write!(f, "0"), // -0 displays as "0"
-            Number::NaN => write!(f, "NaN"),
-            Number::PositiveInfinity => write!(f, "Infinity"),
-            Number::NegativeInfinity => write!(f, "-Infinity"),
+        match &self.value {
+            NumericValue::Rational(r) => write!(f, "{}/{}", r.numer(), r.denom()),
+            NumericValue::Decimal(d) => write!(f, "{}", d),
+            NumericValue::BigDecimal(bd) => write!(f, "{}", bd),
+            NumericValue::NegativeZero => write!(f, "0"), // -0 displays as "0"
+            NumericValue::NaN => write!(f, "NaN"),
+            NumericValue::PositiveInfinity => write!(f, "Infinity"),
+            NumericValue::NegativeInfinity => write!(f, "-Infinity"),
         }
     }
 }
 
 impl Hash for Number {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        match self {
-            Number::Finite(d) => {
+        match &self.value {
+            NumericValue::Rational(_r) => unimplemented!("Rational hash not yet implemented"),
+            NumericValue::Decimal(d) => {
                 0u8.hash(state); // Discriminant
                 d.hash(state);
             }
-            Number::NaN => {
+            NumericValue::BigDecimal(_bd) => unimplemented!("BigDecimal hash not yet implemented"),
+            NumericValue::NaN => {
                 1u8.hash(state); // All NaN values hash the same
             }
-            Number::PositiveInfinity => {
+            NumericValue::PositiveInfinity => {
                 2u8.hash(state);
             }
-            Number::NegativeInfinity => {
+            NumericValue::NegativeInfinity => {
                 3u8.hash(state);
             }
-            Number::NegativeZero => {
+            NumericValue::NegativeZero => {
                 4u8.hash(state);
             }
         }
@@ -176,44 +205,55 @@ impl Hash for Number {
 
 impl PartialEq for Number {
     fn eq(&self, other: &Number) -> bool {
-        match (self, other) {
+        match (self.value(), other.value()) {
             // For Rust compatibility, NaN equals itself (breaking JS semantics)
-            (Number::NaN, Number::NaN) => true,
-            (Number::NaN, _) | (_, Number::NaN) => false,
-            (Number::Finite(a), Number::Finite(b)) => a == b,
-            (Number::PositiveInfinity, Number::PositiveInfinity) => true,
-            (Number::NegativeInfinity, Number::NegativeInfinity) => true,
-            (Number::NegativeZero, Number::NegativeZero) => true,
+            (NumericValue::NaN, NumericValue::NaN) => true,
+            (NumericValue::NaN, _) | (_, NumericValue::NaN) => false,
+            (NumericValue::Rational(a), NumericValue::Rational(b)) => a == b,
+            (NumericValue::Decimal(a), NumericValue::Decimal(b)) => a == b,
+            (NumericValue::BigDecimal(a), NumericValue::BigDecimal(b)) => a == b,
+            (NumericValue::PositiveInfinity, NumericValue::PositiveInfinity) => true,
+            (NumericValue::NegativeInfinity, NumericValue::NegativeInfinity) => true,
+            (NumericValue::NegativeZero, NumericValue::NegativeZero) => true,
             // +0 equals -0 (maintaining this JS semantic for simplicity)
-            (Number::Finite(a), Number::NegativeZero)
-            | (Number::NegativeZero, Number::Finite(a)) => a.is_zero(),
-            _ => false,
+            (NumericValue::Decimal(a), NumericValue::NegativeZero)
+            | (NumericValue::NegativeZero, NumericValue::Decimal(a)) => a.is_zero(),
+            // Mixed-type comparisons - not yet implemented
+            _ => unimplemented!("Mixed-type equality not yet implemented"),
         }
     }
 }
 
 impl PartialOrd for Number {
     fn partial_cmp(&self, other: &Number) -> Option<Ordering> {
-        match (self, other) {
-            // NaN comparisons now return Some when both are NaN
-            (Number::NaN, Number::NaN) => Some(Ordering::Equal),
-            (Number::NaN, _) => Some(Ordering::Less),
-            (_, Number::NaN) => Some(Ordering::Greater),
+        match (self.value(), other.value()) {
+            // Rational and BigDecimal - not yet implemented (must come first to catch all combinations)
+            (NumericValue::Rational(_), _) | (_, NumericValue::Rational(_)) => {
+                unimplemented!("Rational partial_cmp not yet implemented")
+            }
+            (NumericValue::BigDecimal(_), _) | (_, NumericValue::BigDecimal(_)) => {
+                unimplemented!("BigDecimal partial_cmp not yet implemented")
+            }
 
-            (Number::Finite(a), Number::Finite(b)) => a.partial_cmp(b),
-            (Number::NegativeInfinity, Number::NegativeInfinity)
-            | (Number::PositiveInfinity, Number::PositiveInfinity)
-            | (Number::NegativeZero, Number::NegativeZero) => Some(Ordering::Equal),
+            // NaN comparisons now return Some when both are NaN
+            (NumericValue::NaN, NumericValue::NaN) => Some(Ordering::Equal),
+            (NumericValue::NaN, _) => Some(Ordering::Less),
+            (_, NumericValue::NaN) => Some(Ordering::Greater),
+
+            (NumericValue::Decimal(a), NumericValue::Decimal(b)) => a.partial_cmp(b),
+            (NumericValue::NegativeInfinity, NumericValue::NegativeInfinity)
+            | (NumericValue::PositiveInfinity, NumericValue::PositiveInfinity)
+            | (NumericValue::NegativeZero, NumericValue::NegativeZero) => Some(Ordering::Equal),
 
             // Handle zero equality: +0 == -0
-            (Number::Finite(a), Number::NegativeZero) => {
+            (NumericValue::Decimal(a), NumericValue::NegativeZero) => {
                 if a.is_zero() {
                     Some(Ordering::Equal)
                 } else {
                     a.partial_cmp(&Decimal::ZERO)
                 }
             }
-            (Number::NegativeZero, Number::Finite(a)) => {
+            (NumericValue::NegativeZero, NumericValue::Decimal(a)) => {
                 if a.is_zero() {
                     Some(Ordering::Equal)
                 } else {
@@ -222,10 +262,10 @@ impl PartialOrd for Number {
             }
 
             // Infinities
-            (Number::NegativeInfinity, _) => Some(Ordering::Less),
-            (_, Number::NegativeInfinity) => Some(Ordering::Greater),
-            (Number::PositiveInfinity, _) => Some(Ordering::Greater),
-            (_, Number::PositiveInfinity) => Some(Ordering::Less),
+            (NumericValue::NegativeInfinity, _) => Some(Ordering::Less),
+            (_, NumericValue::NegativeInfinity) => Some(Ordering::Greater),
+            (NumericValue::PositiveInfinity, _) => Some(Ordering::Greater),
+            (_, NumericValue::PositiveInfinity) => Some(Ordering::Less),
         }
     }
 }
@@ -236,33 +276,41 @@ impl Eq for Number {}
 // Note: -0 and +0 are treated as equal in this ordering
 impl Ord for Number {
     fn cmp(&self, other: &Self) -> Ordering {
-        match (self, other) {
+        match (self.value(), other.value()) {
+            // Rational and BigDecimal - not yet implemented
+            (NumericValue::Rational(_), _) | (_, NumericValue::Rational(_)) => {
+                unimplemented!("Rational cmp not yet implemented")
+            }
+            (NumericValue::BigDecimal(_), _) | (_, NumericValue::BigDecimal(_)) => {
+                unimplemented!("BigDecimal cmp not yet implemented")
+            }
+
             // NaN handling - consistent with PartialEq
-            (Number::NaN, Number::NaN) => Ordering::Equal,
-            (Number::NaN, _) => Ordering::Less,
-            (_, Number::NaN) => Ordering::Greater,
+            (NumericValue::NaN, NumericValue::NaN) => Ordering::Equal,
+            (NumericValue::NaN, _) => Ordering::Less,
+            (_, NumericValue::NaN) => Ordering::Greater,
 
             // Infinities
-            (Number::NegativeInfinity, Number::NegativeInfinity) => Ordering::Equal,
-            (Number::PositiveInfinity, Number::PositiveInfinity) => Ordering::Equal,
-            (Number::NegativeInfinity, _) => Ordering::Less,
-            (_, Number::NegativeInfinity) => Ordering::Greater,
-            (Number::PositiveInfinity, _) => Ordering::Greater,
-            (_, Number::PositiveInfinity) => Ordering::Less,
+            (NumericValue::NegativeInfinity, NumericValue::NegativeInfinity) => Ordering::Equal,
+            (NumericValue::PositiveInfinity, NumericValue::PositiveInfinity) => Ordering::Equal,
+            (NumericValue::NegativeInfinity, _) => Ordering::Less,
+            (_, NumericValue::NegativeInfinity) => Ordering::Greater,
+            (NumericValue::PositiveInfinity, _) => Ordering::Greater,
+            (_, NumericValue::PositiveInfinity) => Ordering::Less,
 
             // Finite numbers and zeros
-            (Number::Finite(a), Number::Finite(b)) => a.cmp(b),
-            (Number::NegativeZero, Number::NegativeZero) => Ordering::Equal,
+            (NumericValue::Decimal(a), NumericValue::Decimal(b)) => a.cmp(b),
+            (NumericValue::NegativeZero, NumericValue::NegativeZero) => Ordering::Equal,
 
             // Zero equality: treat +0 and -0 as equal
-            (Number::Finite(a), Number::NegativeZero) => {
+            (NumericValue::Decimal(a), NumericValue::NegativeZero) => {
                 if a.is_zero() {
                     Ordering::Equal
                 } else {
                     a.cmp(&Decimal::ZERO)
                 }
             }
-            (Number::NegativeZero, Number::Finite(a)) => {
+            (NumericValue::NegativeZero, NumericValue::Decimal(a)) => {
                 if a.is_zero() {
                     Ordering::Equal
                 } else {

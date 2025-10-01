@@ -13,6 +13,7 @@ pub mod representation;
 pub mod traits;
 
 pub use crate::core::Number;
+use crate::core::NumericValue;
 
 pub mod prelude {
     pub use super::Number;
@@ -21,7 +22,6 @@ pub mod prelude {
     pub use num_traits::{FromPrimitive, One, Signed, ToPrimitive, Zero};
     pub use rust_decimal::{Decimal, RoundingStrategy};
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -37,13 +37,14 @@ mod tests {
     fn test_arithmetic() {
         let a = num!(5);
         let b = num!(3);
-        let _result = a + b; // Should be 8
+        let result = &a + &b; // Use references to keep a and b
+        assert_eq!(result.to_f64(), 8.0);
     }
 
     #[test]
     fn test_nan_semantics() {
         let nan = Number::NAN;
-        assert_ne!(nan, nan); // NaN != NaN in JS
+        assert_ne!(&nan, &nan); // NaN != NaN in JS - use references
     }
 
     #[test]
@@ -59,7 +60,7 @@ mod tests {
     fn test_ergonomic_usage() {
         use num_traits::{One, Zero};
 
-        // Natural arithmetic
+        // Natural arithmetic with references
         let a = Number::from(10);
         let b = Number::from(3);
         let _result = &a + &b * Number::one(); // Reference operations work
@@ -68,16 +69,15 @@ mod tests {
         let _zero = Number::zero();
         let _one = Number::one();
 
-        // Method chaining
+        // Method chaining (consumes self)
         let _result = Number::from(16).sqrt().abs();
     }
 }
 
 #[cfg(test)]
 mod js_semantics_tests {
-    use rust_decimal::Decimal;
-
     use super::*;
+    use rust_decimal::Decimal;
     use std::str::FromStr;
 
     macro_rules! assert_js_eq {
@@ -150,19 +150,21 @@ mod js_semantics_tests {
         let a = num!(5);
         let b = num!(3);
 
-        assert_js_eq!(a + b, num!(8));
-        assert_js_eq!(a - b, num!(2));
-        assert_js_eq!(a * b, num!(15));
-        // Division precision test - just check it's approximately correct
-        let result = a / b;
+        assert_js_eq!(&a + &b, num!(8));
+        assert_js_eq!(&a - &b, num!(2));
+        assert_js_eq!(&a * &b, num!(15));
+
+        // Division precision test
+        let result = &a / &b;
         assert!(result.is_finite());
         let expected = Number::from(Decimal::from_str("1.6666666666666666667").unwrap());
         let diff = (result - expected).abs();
         assert!(diff < Number::from(Decimal::from_str("0.0000000000000000001").unwrap()));
-        assert_js_eq!(a % b, num!(2));
 
-        assert_js_eq!(-a, num!(-5));
-        assert_js_eq!(-(-a), num!(5));
+        assert_js_eq!(&a % &b, num!(2));
+
+        assert_js_eq!(-a.clone(), num!(-5));
+        assert_js_eq!(-(-a.clone()), num!(5));
     }
 
     #[test]
@@ -172,7 +174,7 @@ mod js_semantics_tests {
         let expected = Number::from(Decimal::from_str("0.3").unwrap());
 
         // This should work with Decimal (unlike floating point)
-        assert_js_eq!(a + b, expected);
+        assert_js_eq!(&a + &b, expected);
     }
 
     // =================== SPECIAL VALUE ARITHMETIC ===================
@@ -184,17 +186,17 @@ mod js_semantics_tests {
         let inf = Number::POSITIVE_INFINITY;
 
         // NaN + anything = NaN
-        assert!((nan + finite).is_nan());
-        assert!((finite + nan).is_nan());
-        assert!((nan + inf).is_nan());
-        assert!((nan + nan).is_nan());
+        assert!((&nan + &finite).is_nan());
+        assert!((&finite + &nan).is_nan());
+        assert!((&nan + &inf).is_nan());
+        assert!((&nan + &nan).is_nan());
 
         // NaN with all operations
-        assert!((nan - finite).is_nan());
-        assert!((nan * finite).is_nan());
-        assert!((nan / finite).is_nan());
-        assert!((nan % finite).is_nan());
-        assert!((-nan).is_nan());
+        assert!((&nan - &finite).is_nan());
+        assert!((&nan * &finite).is_nan());
+        assert!((&nan / &finite).is_nan());
+        assert!((&nan % &finite).is_nan());
+        assert!((-nan.clone()).is_nan());
     }
 
     #[test]
@@ -205,37 +207,37 @@ mod js_semantics_tests {
         let zero = num!(0);
 
         // Infinity + finite = Infinity
-        assert_js_eq!(pos_inf + finite, pos_inf);
-        assert_js_eq!(neg_inf + finite, neg_inf);
-        assert_js_eq!(finite + pos_inf, pos_inf);
+        assert_js_eq!(&pos_inf + &finite, pos_inf);
+        assert_js_eq!(&neg_inf + &finite, neg_inf);
+        assert_js_eq!(&finite + &pos_inf, pos_inf);
 
         // Infinity - Infinity = NaN
-        assert!((pos_inf - pos_inf).is_nan());
-        assert!((neg_inf - neg_inf).is_nan());
+        assert!((&pos_inf - &pos_inf).is_nan());
+        assert!((&neg_inf - &neg_inf).is_nan());
 
         // Infinity + (-Infinity) = NaN
-        assert!((pos_inf + neg_inf).is_nan());
+        assert!((&pos_inf + &neg_inf).is_nan());
 
         // Infinity * finite = Infinity (with sign rules)
-        assert_js_eq!(pos_inf * finite, pos_inf);
-        assert_js_eq!(neg_inf * finite, neg_inf);
-        assert_js_eq!(pos_inf * num!(-5), neg_inf);
+        assert_js_eq!(&pos_inf * &finite, pos_inf);
+        assert_js_eq!(&neg_inf * &finite, neg_inf);
+        assert_js_eq!(&pos_inf * &num!(-5), neg_inf);
 
         // Infinity * 0 = NaN
-        assert!((pos_inf * zero).is_nan());
-        assert!((neg_inf * zero).is_nan());
+        assert!((&pos_inf * &zero).is_nan());
+        assert!((&neg_inf * &zero).is_nan());
 
         // Infinity / finite = Infinity
-        assert_js_eq!(pos_inf / finite, pos_inf);
-        assert_js_eq!(neg_inf / finite, neg_inf);
+        assert_js_eq!(&pos_inf / &finite, pos_inf);
+        assert_js_eq!(&neg_inf / &finite, neg_inf);
 
         // Infinity / Infinity = NaN
-        assert!((pos_inf / pos_inf).is_nan());
-        assert!((pos_inf / neg_inf).is_nan());
+        assert!((&pos_inf / &pos_inf).is_nan());
+        assert!((&pos_inf / &neg_inf).is_nan());
 
         // finite / Infinity = 0
-        assert_js_eq!(finite / pos_inf, zero);
-        assert_js_eq!(finite / neg_inf, zero);
+        assert_js_eq!(&finite / &pos_inf, zero);
+        assert_js_eq!(&finite / &neg_inf, zero);
     }
 
     #[test]
@@ -245,13 +247,13 @@ mod js_semantics_tests {
         let zero = num!(0);
 
         // Positive / 0 = +Infinity
-        assert_js_eq!(pos / zero, Number::POSITIVE_INFINITY);
+        assert_js_eq!(&pos / &zero, Number::POSITIVE_INFINITY);
 
         // Negative / 0 = -Infinity
-        assert_js_eq!(neg / zero, Number::NEGATIVE_INFINITY);
+        assert_js_eq!(&neg / &zero, Number::NEGATIVE_INFINITY);
 
         // 0 / 0 = NaN
-        assert!((zero / zero).is_nan());
+        assert!((&zero / &zero).is_nan());
     }
 
     #[test]
@@ -261,13 +263,13 @@ mod js_semantics_tests {
         let inf = Number::POSITIVE_INFINITY;
 
         // x % 0 = NaN
-        assert!((finite % zero).is_nan());
+        assert!((&finite % &zero).is_nan());
 
         // Infinity % x = NaN
-        assert!((inf % finite).is_nan());
+        assert!((&inf % &finite).is_nan());
 
         // x % Infinity = x
-        assert_js_eq!(finite % inf, finite);
+        assert_js_eq!(&finite % &inf, finite);
 
         // Test negative modulo behavior (JS-specific)
         assert_js_eq!(num!(-5) % num!(3), num!(-2));
@@ -283,18 +285,18 @@ mod js_semantics_tests {
         let finite = num!(5);
 
         // NaN != NaN (most important JS quirk)
-        assert_js_ne!(nan, nan);
-        assert_ne!(nan, nan); // Rust PartialEq should also follow this
+        assert_js_ne!(&nan, &nan);
+        assert_ne!(&nan, &nan); // Rust PartialEq should also follow this
 
         // NaN != anything
-        assert_js_ne!(nan, finite);
-        assert_js_ne!(finite, nan);
-        assert_js_ne!(nan, Number::POSITIVE_INFINITY);
+        assert_js_ne!(&nan, &finite);
+        assert_js_ne!(&finite, &nan);
+        assert_js_ne!(&nan, &Number::POSITIVE_INFINITY);
 
         // NaN comparisons always return None/false
         assert_eq!(nan.partial_cmp(&finite), None);
         assert_eq!(finite.partial_cmp(&nan), None);
-        assert_eq!(nan.partial_cmp(&nan), None);
+        assert_eq!(nan.partial_cmp(&Number::NAN), None);
 
         assert_eq!(nan.js_less_than(&finite), None);
         assert_eq!(finite.js_less_than(&nan), None);
@@ -307,14 +309,14 @@ mod js_semantics_tests {
         let finite = num!(1000000);
 
         // +Infinity > everything except +Infinity
-        assert!(pos_inf > finite);
-        assert!(pos_inf > neg_inf);
-        assert_js_eq!(pos_inf, pos_inf);
+        assert!(&pos_inf > &finite);
+        assert!(&pos_inf > &neg_inf);
+        assert_js_eq!(&pos_inf, &pos_inf);
 
         // -Infinity < everything except -Infinity
-        assert!(neg_inf < finite);
-        assert!(neg_inf < pos_inf);
-        assert_js_eq!(neg_inf, neg_inf);
+        assert!(&neg_inf < &finite);
+        assert!(&neg_inf < &pos_inf);
+        assert_js_eq!(&neg_inf, &neg_inf);
     }
 
     #[test]
@@ -323,13 +325,13 @@ mod js_semantics_tests {
         let b = num!(3);
         let c = num!(5);
 
-        assert!(a > b);
-        assert!(b < a);
-        assert_js_eq!(a, c);
-        assert!(a >= c);
-        assert!(a <= c);
-        assert!(a >= b);
-        assert!(b <= a);
+        assert!(&a > &b);
+        assert!(&b < &a);
+        assert_js_eq!(&a, &c);
+        assert!(&a >= &c);
+        assert!(&a <= &c);
+        assert!(&a >= &b);
+        assert!(&b <= &a);
     }
 
     #[test]
@@ -356,16 +358,16 @@ mod js_semantics_tests {
         let b = num!(5); // 0b0101
 
         // Basic bitwise operations
-        assert_js_eq!(a & b, num!(4)); // 0b0100
-        assert_js_eq!(a | b, num!(13)); // 0b1101
-        assert_js_eq!(a ^ b, num!(9)); // 0b1001
+        assert_js_eq!(&a & &b, num!(4)); // 0b0100
+        assert_js_eq!(&a | &b, num!(13)); // 0b1101
+        assert_js_eq!(&a ^ &b, num!(9)); // 0b1001
 
         // Bitwise NOT
-        assert_js_eq!(!a, num!(-13)); // ~12 = -13 in two's complement
+        assert_js_eq!(!a.clone(), num!(-13)); // ~12 = -13 in two's complement
 
         // Shifts
-        assert_js_eq!(a << num!(1), num!(24)); // 12 << 1 = 24
-        assert_js_eq!(a >> num!(1), num!(6)); // 12 >> 1 = 6
+        assert_js_eq!(&a << &num!(1), num!(24)); // 12 << 1 = 24
+        assert_js_eq!(&a >> &num!(1), num!(6)); // 12 >> 1 = 6
     }
 
     #[test]
@@ -374,8 +376,8 @@ mod js_semantics_tests {
         let decimal = num!(12.7);
         let integer = num!(5);
 
-        assert_js_eq!(decimal & integer, num!(4)); // 12 & 5 = 4
-        assert_js_eq!(decimal | integer, num!(13)); // 12 | 5 = 13
+        assert_js_eq!(&decimal & &integer, num!(4)); // 12 & 5 = 4
+        assert_js_eq!(&decimal | &integer, num!(13)); // 12 | 5 = 13
     }
 
     #[test]
@@ -385,12 +387,12 @@ mod js_semantics_tests {
         let finite = num!(5);
 
         // Bitwise with NaN -> 0 (NaN converts to 0 in bitwise operations)
-        assert_js_eq!(nan & finite, num!(0));
-        assert_js_eq!(finite & nan, num!(0));
+        assert_js_eq!(&nan & &finite, num!(0));
+        assert_js_eq!(&finite & &nan, num!(0));
 
         // Bitwise with Infinity -> treat as 0
-        assert_js_eq!(inf & finite, num!(0));
-        assert_js_eq!(finite & inf, num!(0));
+        assert_js_eq!(&inf & &finite, num!(0));
+        assert_js_eq!(&finite & &inf, num!(0));
     }
 
     #[test]
@@ -399,10 +401,13 @@ mod js_semantics_tests {
         let shift = num!(1);
 
         // >>> is different from >> for negative numbers
-        assert_js_eq!(a.unsigned_right_shift(shift), num!(2147483647));
+        assert_js_eq!(
+            a.clone().unsigned_right_shift(shift.clone()),
+            num!(2147483647)
+        );
 
         let b = num!(8);
-        assert_js_eq!(b.unsigned_right_shift(num!(2)), num!(2));
+        assert_js_eq!(b.clone().unsigned_right_shift(num!(2)), num!(2));
     }
 
     // =================== MATHEMATICAL FUNCTIONS ===================
@@ -425,20 +430,20 @@ mod js_semantics_tests {
         let negative = num!(-3.7);
 
         // Floor
-        assert_js_eq!(positive.floor(), num!(3));
-        assert_js_eq!(negative.floor(), num!(-4));
+        assert_js_eq!(positive.clone().floor(), num!(3));
+        assert_js_eq!(negative.clone().floor(), num!(-4));
 
         // Ceil
-        assert_js_eq!(positive.ceil(), num!(4));
-        assert_js_eq!(negative.ceil(), num!(-3));
+        assert_js_eq!(positive.clone().ceil(), num!(4));
+        assert_js_eq!(negative.clone().ceil(), num!(-3));
 
         // Round (ties to even in JS)
         assert_js_eq!(num!(3.5).round(), num!(4));
         assert_js_eq!(num!(-3.5).round(), num!(-3));
 
         // Trunc
-        assert_js_eq!(positive.trunc(), num!(3));
-        assert_js_eq!(negative.trunc(), num!(-3));
+        assert_js_eq!(positive.clone().trunc(), num!(3));
+        assert_js_eq!(negative.clone().trunc(), num!(-3));
 
         // Special values
         assert!(Number::NAN.floor().is_nan());
@@ -515,10 +520,6 @@ mod js_semantics_tests {
         assert_eq!(num!(42).to_i32_js_coerce(), 42);
         assert_eq!(num!(42.7).to_i32_js_coerce(), 42); // Truncation
         assert_eq!(num!(-42.7).to_i32_js_coerce(), -42);
-
-        // Large numbers wrap
-        // assert_eq!(js_num!(4294967296).to_i32(), 0); // 2^32 wraps to 0
-        // assert_eq!(js_num!(4294967297).to_i32(), 1);
 
         // Special values
         assert_eq!(Number::NAN.to_i32_js_coerce(), 0);
@@ -641,19 +642,19 @@ mod js_semantics_tests {
         let mut a = num!(5);
 
         a += num!(3);
-        assert_js_eq!(a, num!(8));
+        assert_js_eq!(&a, &num!(8));
 
         a -= num!(2);
-        assert_js_eq!(a, num!(6));
+        assert_js_eq!(&a, &num!(6));
 
         a *= num!(2);
-        assert_js_eq!(a, num!(12));
+        assert_js_eq!(&a, &num!(12));
 
         a /= num!(3);
-        assert_js_eq!(a, num!(4));
+        assert_js_eq!(&a, &num!(4));
 
         a %= num!(3);
-        assert_js_eq!(a, num!(1));
+        assert_js_eq!(&a, &num!(1));
     }
 
     #[test]
@@ -661,19 +662,19 @@ mod js_semantics_tests {
         let mut a = num!(12); // 0b1100
 
         a &= num!(5); // 0b0101
-        assert_js_eq!(a, num!(4)); // 0b0100
+        assert_js_eq!(&a, &num!(4)); // 0b0100
 
         a |= num!(8); // 0b1000
-        assert_js_eq!(a, num!(12)); // 0b1100
+        assert_js_eq!(&a, &num!(12)); // 0b1100
 
         a ^= num!(3); // 0b0011
-        assert_js_eq!(a, num!(15)); // 0b1111
+        assert_js_eq!(&a, &num!(15)); // 0b1111
 
         a <<= num!(1);
-        assert_js_eq!(a, num!(30));
+        assert_js_eq!(&a, &num!(30));
 
         a >>= num!(2);
-        assert_js_eq!(a, num!(7));
+        assert_js_eq!(&a, &num!(7));
     }
 
     // =================== INCREMENT/DECREMENT ===================
@@ -682,8 +683,8 @@ mod js_semantics_tests {
     fn test_increment_decrement() {
         let a = num!(5);
 
-        assert_js_eq!(a.increment(), num!(6));
-        assert_js_eq!(a.decrement(), num!(4));
+        assert_js_eq!(a.clone().increment(), num!(6));
+        assert_js_eq!(a.clone().decrement(), num!(4));
 
         // Special values
         assert!(Number::NAN.increment().is_nan());
@@ -706,7 +707,7 @@ mod js_semantics_tests {
         assert_js_eq!(result, num!(14));
 
         // Mixed special values
-        let complex = Number::POSITIVE_INFINITY - Number::POSITIVE_INFINITY + num!(5);
+        let complex = &Number::POSITIVE_INFINITY - &Number::POSITIVE_INFINITY + num!(5);
         assert!(complex.is_nan()); // Inf - Inf = NaN, NaN + 5 = NaN
     }
 
@@ -719,7 +720,7 @@ mod js_semantics_tests {
         // Very small numbers
         let small = Number::from(Decimal::from_str("0.000000000000000000000000001").unwrap());
         assert!(small.is_finite());
-        assert!(small > num!(0));
+        assert!(&small > &num!(0));
     }
 
     #[test]
@@ -739,11 +740,11 @@ mod js_semantics_tests {
         let neg_zero = num!(-0);
 
         // Should be equal in most contexts
-        assert_js_eq!(pos_zero, neg_zero);
+        assert_js_eq!(&pos_zero, &neg_zero);
 
         // But different in some operations
-        assert_js_eq!(num!(1) / pos_zero, Number::POSITIVE_INFINITY);
-        assert_js_eq!(num!(1) / neg_zero, Number::NEGATIVE_INFINITY);
+        assert_js_eq!(&num!(1) / &pos_zero, Number::POSITIVE_INFINITY);
+        assert_js_eq!(&num!(1) / &neg_zero, Number::NEGATIVE_INFINITY);
     }
 
     #[test]
@@ -753,8 +754,10 @@ mod js_semantics_tests {
         let b = num!(3);
 
         assert_js_eq!(&a + &b, num!(8));
-        assert_js_eq!(a + &b, num!(8));
-        assert_js_eq!(&a + b, num!(8));
+        assert_js_eq!(a.clone() + &b, num!(8));
+        assert_js_eq!(&a + b.clone(), num!(8));
+        // Consuming both
+        assert_js_eq!(a.clone() + b.clone(), num!(8));
     }
 
     #[test]
@@ -766,12 +769,12 @@ mod js_semantics_tests {
 
         // These should all return well-defined results, never panic
         let _results = vec![
-            nan + inf,
-            inf - inf,
-            nan * num!(0),
-            finite / num!(0),
-            num!(0) / num!(0),
-            inf % finite,
+            &nan + &inf,
+            &inf - &inf,
+            &nan * &num!(0),
+            &finite / &num!(0),
+            &num!(0) / &num!(0),
+            &inf % &finite,
             nan.sqrt(),
             num!(-1).sqrt(),
             num!(0).log(),
@@ -790,23 +793,25 @@ mod js_semantics_tests {
         let c = num!(2);
 
         // Associativity (when no special values involved)
-        assert_js_eq!((a + b) + c, a + (b + c));
-        assert_js_eq!((a * b) * c, a * (b * c));
+        assert_js_eq!((&a + &b) + &c, &a + (&b + &c));
+        assert_js_eq!((&a * &b) * &c, &a * (&b * &c));
 
         // Commutativity
-        assert_js_eq!(a + b, b + a);
-        assert_js_eq!(a * b, b * a);
+        assert_js_eq!(&a + &b, &b + &a);
+        assert_js_eq!(&a * &b, &b * &a);
 
         // Distributivity
-        assert_js_eq!(a * (b + c), (a * b) + (a * c));
+        assert_js_eq!(&a * (&b + &c), (&a * &b) + (&a * &c));
 
         // Identity elements
-        assert_js_eq!(a + num!(0), a);
-        assert_js_eq!(a * num!(1), a);
+        assert_js_eq!(&a + &num!(0), a);
+        assert_js_eq!(&a * &num!(1), a);
 
         // Inverse elements
-        assert_js_eq!(a + (-a), num!(0));
-        assert_js_eq!(a / a, num!(1)); // when a != 0
+        let a = num!(7); // Fresh binding for consuming
+        assert_js_eq!(a.clone() + (-a.clone()), num!(0));
+        let a = num!(7); // Fresh binding for consuming
+        assert_js_eq!(&a / &a, num!(1)); // when a != 0
     }
 
     #[test]
@@ -815,15 +820,15 @@ mod js_semantics_tests {
         let b = num!(3);
 
         // Transitivity
-        if a > b && b > num!(1) {
-            assert!(a > num!(1));
+        if &a > &b && &b > &num!(1) {
+            assert!(&a > &num!(1));
         }
 
         // Antisymmetry
-        assert!(!(a > b && b > a));
+        assert!(!(&a > &b && &b > &a));
 
         // Reflexivity for equality
-        assert_js_eq!(a, a);
+        assert_js_eq!(&a, &a);
 
         // Note: NaN breaks many of these properties, which is expected
     }
