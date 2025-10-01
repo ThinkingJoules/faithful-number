@@ -20,10 +20,25 @@ impl Number {
 
     // JS-specific operations that don't have Rust traits
     pub fn unsigned_right_shift(self, bits: Number) -> Number {
+        use crate::ApproximationType;
+
+        // Check flags BEFORE moving
+        let self_trans = self.is_transcendental();
+        let bits_trans = bits.is_transcendental();
+        let self_rat_approx = self.is_rational_approximation();
+        let bits_rat_approx = bits.is_rational_approximation();
+
+        let apprx = if self_trans || bits_trans {
+            Some(ApproximationType::Transcendental)
+        } else if self_rat_approx || bits_rat_approx {
+            Some(ApproximationType::RationalApproximation)
+        } else {
+            None
+        };
+
         Number {
             value: self.value.unsigned_right_shift(bits.value),
-            transcendental: self.transcendental || bits.transcendental,
-            rational_approximation: self.rational_approximation || bits.rational_approximation,
+            apprx,
         }
     }
 

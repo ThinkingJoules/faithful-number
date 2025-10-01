@@ -144,56 +144,52 @@ impl NumericValue {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum ApproximationType {
+    Transcendental,        // From irrational operations
+    RationalApproximation, // From Rational→Decimal graduation
+}
+
 /// The main public number type - a wrapper around NumericValue that tracks
 /// whether the value has been approximated through operations
 #[derive(Debug, Clone)]
 pub struct Number {
     pub(crate) value: NumericValue,
-    /// True if this number was produced by a transcendental/irrational operation (sqrt, sin, log, etc.)
-    pub(crate) transcendental: bool,
-    /// True if a rational was approximated as decimal (e.g., 1/3 → 0.333...)
-    pub(crate) rational_approximation: bool,
+    pub(crate) apprx: Option<ApproximationType>,
 }
 
 impl Number {
     // Constants
     pub const NAN: Number = Number {
         value: NumericValue::NaN,
-        transcendental: false,
-        rational_approximation: false,
+        apprx: None,
     };
     pub const POSITIVE_INFINITY: Number = Number {
         value: NumericValue::PositiveInfinity,
-        transcendental: false,
-        rational_approximation: false,
+        apprx: None,
     };
     pub const NEGATIVE_INFINITY: Number = Number {
         value: NumericValue::NegativeInfinity,
-        transcendental: false,
-        rational_approximation: false,
+        apprx: None,
     };
     pub const ZERO: Number = Number {
         value: NumericValue::Decimal(Decimal::ZERO),
-        transcendental: false,
-        rational_approximation: false,
+        apprx: None,
     };
     pub const ONE: Number = Number {
         value: NumericValue::Decimal(Decimal::ONE),
-        transcendental: false,
-        rational_approximation: false,
+        apprx: None,
     };
     pub const NEGATIVE_ZERO: Number = Number {
         value: NumericValue::NegativeZero,
-        transcendental: false,
-        rational_approximation: false,
+        apprx: None,
     };
 
     // Constructors
     pub fn new(num: i64, scale: u32) -> Self {
         Number {
             value: NumericValue::new(num, scale),
-            transcendental: false,
-            rational_approximation: false,
+            apprx: None,
         }
     }
 
@@ -216,40 +212,36 @@ impl Number {
     pub const fn new_uint(num: u32) -> Self {
         Number {
             value: NumericValue::new_uint(num),
-            transcendental: false,
-            rational_approximation: false,
+            apprx: None,
         }
     }
 
     pub fn try_from_i128_with_scale(num: i128, scale: u32) -> Result<Self, rust_decimal::Error> {
         Ok(Number {
             value: NumericValue::try_from_i128_with_scale(num, scale)?,
-            transcendental: false,
-            rational_approximation: false,
+            apprx: None,
         })
     }
 
     pub fn from_rational(r: Rational64) -> Self {
         Number {
             value: NumericValue::from_rational(r),
-            transcendental: false,
-            rational_approximation: false,
+            apprx: None,
         }
     }
 
     pub fn from_decimal(d: Decimal) -> Self {
         Number {
             value: NumericValue::from_decimal(d),
-            transcendental: false,
-            rational_approximation: false,
+
+            apprx: None,
         }
     }
 
     pub fn from_bigdecimal(bd: BigDecimal) -> Self {
         Number {
             value: NumericValue::from_bigdecimal(bd),
-            transcendental: false,
-            rational_approximation: false,
+            apprx: None,
         }
     }
 
@@ -280,11 +272,37 @@ impl Number {
     }
 
     pub fn is_exact(&self) -> bool {
-        !self.transcendental
+        self.apprx.is_none()
     }
 
     pub fn is_transcendental(&self) -> bool {
-        self.transcendental
+        matches!(self.apprx, Some(ApproximationType::Transcendental))
+    }
+
+    pub fn is_rational_approximation(&self) -> bool {
+        matches!(self.apprx, Some(ApproximationType::RationalApproximation))
+    }
+
+    // Debug-only unwrap helpers that panic on logic bugs
+    #[cfg(debug_assertions)]
+    pub(crate) fn assert_transcendental(&self) {
+        assert!(
+            matches!(self.apprx, Some(ApproximationType::Transcendental)),
+            "Expected Transcendental approximation"
+        );
+    }
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn assert_rational_approximation(&self) {
+        assert!(
+            matches!(self.apprx, Some(ApproximationType::RationalApproximation)),
+            "Expected RationalApproximation"
+        );
+    }
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn assert_exact(&self) {
+        assert!(self.apprx.is_none(), "Expected exact value");
     }
 
     // Conversion methods

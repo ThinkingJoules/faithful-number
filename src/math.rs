@@ -1,6 +1,6 @@
 use crate::{Number, NumericValue};
-use rust_decimal::Decimal;
 use num_rational::Ratio;
+use rust_decimal::Decimal;
 
 use num_traits::{FromPrimitive, Signed, ToPrimitive, Zero};
 use std::str::FromStr;
@@ -143,7 +143,8 @@ impl NumericValue {
 
                 // Check if both numerator and denominator are perfect squares
                 if let (Some(numer_sqrt), Some(denom_sqrt)) =
-                    (is_perfect_square(numer), is_perfect_square(denom)) {
+                    (is_perfect_square(numer), is_perfect_square(denom))
+                {
                     return NumericValue::Rational(Ratio::new(numer_sqrt, denom_sqrt));
                 }
 
@@ -836,177 +837,239 @@ impl Number {
     pub fn abs(self) -> Number {
         Number {
             value: self.value.abs(),
-            transcendental: self.transcendental,
-            rational_approximation: self.rational_approximation,
+            apprx: self.apprx,
         }
     }
 
     pub fn floor(self) -> Number {
         Number {
             value: self.value.floor(),
-            transcendental: false, // Rounding removes approximate decimal digits
-            rational_approximation: self.rational_approximation,
+            // Rounding removes approximate decimal digits - result is exact
+            apprx: None,
         }
     }
 
     pub fn ceil(self) -> Number {
         Number {
             value: self.value.ceil(),
-            transcendental: false, // Rounding removes approximate decimal digits
-            rational_approximation: self.rational_approximation,
+            // Rounding removes approximate decimal digits - result is exact
+            apprx: None,
         }
     }
 
     pub fn round(self) -> Number {
         Number {
             value: self.value.round(),
-            transcendental: false, // Rounding removes approximate decimal digits
-            rational_approximation: self.rational_approximation,
+            // Rounding removes approximate decimal digits - result is exact
+            apprx: None,
         }
     }
 
     pub fn round_dp(self, dp: u32) -> Number {
         Number {
             value: self.value.round_dp(dp),
-            transcendental: false, // Rounding removes approximate decimal digits
-            rational_approximation: self.rational_approximation,
+            // Rounding removes approximate decimal digits - result is exact
+            apprx: None,
         }
     }
 
     pub fn trunc(self) -> Number {
         Number {
             value: self.value.trunc(),
-            transcendental: false, // Truncation removes approximate decimal digits
-            rational_approximation: self.rational_approximation,
+            // Truncation removes approximate decimal digits - result is exact
+            apprx: None,
         }
     }
 
     pub fn sqrt(self) -> Number {
+        use crate::ApproximationType;
         let result_value = self.value.sqrt();
 
         // Only transcendental if result is a Decimal (approximation)
         // If result is Rational (like sqrt(4) = 2), it's exact
-        let is_transcendental = matches!(result_value, NumericValue::Decimal(_));
+        let apprx = if matches!(result_value, NumericValue::Decimal(_)) {
+            Some(ApproximationType::Transcendental)
+        } else {
+            None
+        };
 
         Number {
             value: result_value,
-            transcendental: is_transcendental,
-            rational_approximation: false,
+            apprx,
         }
     }
 
     pub fn pow(self, exponent: Number) -> Number {
-        let approximated =
-            self.transcendental || exponent.transcendental || self.is_transcendental_pow(&exponent);
+        use crate::ApproximationType;
+        let is_approximated = self.is_transcendental()
+            || exponent.is_transcendental()
+            || self.is_transcendental_pow(&exponent);
+
         Number {
             value: self.value.pow(exponent.value),
-            transcendental: approximated,
-            rational_approximation: false, // transcendental trumps rational_approximation
+            apprx: if is_approximated {
+                Some(ApproximationType::Transcendental)
+            } else {
+                None
+            },
         }
     }
 
-    // Transcendental functions - always mark as transcendental
+    // Transcendental functions - mark as transcendental only if result is approximated
     pub fn log(self) -> Number {
+        use crate::ApproximationType;
+        let result_value = self.value.log();
         Number {
-            value: self.value.log(),
-            transcendental: true,
-            rational_approximation: false,
+            value: result_value.clone(),
+            apprx: if matches!(result_value, NumericValue::Decimal(_)) {
+                Some(ApproximationType::Transcendental)
+            } else {
+                None
+            },
         }
     }
 
     pub fn log10(self) -> Number {
+        use crate::ApproximationType;
+        let result_value = self.value.log10();
         Number {
-            value: self.value.log10(),
-            transcendental: true,
-            rational_approximation: false,
+            value: result_value.clone(),
+            apprx: if matches!(result_value, NumericValue::Decimal(_)) {
+                Some(ApproximationType::Transcendental)
+            } else {
+                None
+            },
         }
     }
 
     pub fn log2(self) -> Number {
+        use crate::ApproximationType;
+        let result_value = self.value.log2();
         Number {
-            value: self.value.log2(),
-            transcendental: true,
-            rational_approximation: false,
+            value: result_value.clone(),
+            apprx: if matches!(result_value, NumericValue::Decimal(_)) {
+                Some(ApproximationType::Transcendental)
+            } else {
+                None
+            },
         }
     }
 
     pub fn exp(self) -> Number {
+        use crate::ApproximationType;
+        let result_value = self.value.exp();
         Number {
-            value: self.value.exp(),
-            transcendental: true,
-            rational_approximation: false,
+            value: result_value.clone(),
+            apprx: if matches!(result_value, NumericValue::Decimal(_)) {
+                Some(ApproximationType::Transcendental)
+            } else {
+                None
+            },
         }
     }
 
     pub fn sin(self) -> Number {
+        use crate::ApproximationType;
+        let result_value = self.value.sin();
         Number {
-            value: self.value.sin(),
-            transcendental: true,
-            rational_approximation: false,
+            value: result_value.clone(),
+            apprx: if matches!(result_value, NumericValue::Decimal(_)) {
+                Some(ApproximationType::Transcendental)
+            } else {
+                None
+            },
         }
     }
 
     pub fn cos(self) -> Number {
+        use crate::ApproximationType;
+        let result_value = self.value.cos();
         Number {
-            value: self.value.cos(),
-            transcendental: true,
-            rational_approximation: false,
+            value: result_value.clone(),
+            apprx: if matches!(result_value, NumericValue::Decimal(_)) {
+                Some(ApproximationType::Transcendental)
+            } else {
+                None
+            },
         }
     }
 
     pub fn tan(self) -> Number {
+        use crate::ApproximationType;
+        let result_value = self.value.tan();
         Number {
-            value: self.value.tan(),
-            transcendental: true,
-            rational_approximation: false,
+            value: result_value.clone(),
+            apprx: if matches!(result_value, NumericValue::Decimal(_)) {
+                Some(ApproximationType::Transcendental)
+            } else {
+                None
+            },
         }
     }
 
     pub fn asin(self) -> Number {
+        use crate::ApproximationType;
+        let result_value = self.value.asin();
         Number {
-            value: self.value.asin(),
-            transcendental: true,
-            rational_approximation: false,
+            value: result_value.clone(),
+            apprx: if matches!(result_value, NumericValue::Decimal(_)) {
+                Some(ApproximationType::Transcendental)
+            } else {
+                None
+            },
         }
     }
 
     pub fn acos(self) -> Number {
+        use crate::ApproximationType;
+        let result_value = self.value.acos();
         Number {
-            value: self.value.acos(),
-            transcendental: true,
-            rational_approximation: false,
+            value: result_value.clone(),
+            apprx: if matches!(result_value, NumericValue::Decimal(_)) {
+                Some(ApproximationType::Transcendental)
+            } else {
+                None
+            },
         }
     }
 
     pub fn atan(self) -> Number {
+        use crate::ApproximationType;
+        let result_value = self.value.atan();
         Number {
-            value: self.value.atan(),
-            transcendental: true,
-            rational_approximation: false,
+            value: result_value.clone(),
+            apprx: if matches!(result_value, NumericValue::Decimal(_)) {
+                Some(ApproximationType::Transcendental)
+            } else {
+                None
+            },
         }
     }
 
     pub fn atan2(self, x: Number) -> Number {
+        use crate::ApproximationType;
+        let result_value = self.value.atan2(x.value);
         Number {
-            value: self.value.atan2(x.value),
-            transcendental: true,
-            rational_approximation: false,
+            value: result_value.clone(),
+            apprx: if matches!(result_value, NumericValue::Decimal(_)) {
+                Some(ApproximationType::Transcendental)
+            } else {
+                None
+            },
         }
     }
 
     pub fn increment(self) -> Number {
         Number {
             value: self.value.increment(),
-            transcendental: self.transcendental,
-            rational_approximation: self.rational_approximation,
+            apprx: self.apprx,
         }
     }
 
     pub fn decrement(self) -> Number {
         Number {
             value: self.value.decrement(),
-            transcendental: self.transcendental,
-            rational_approximation: self.rational_approximation,
+            apprx: self.apprx,
         }
     }
 

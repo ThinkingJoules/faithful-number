@@ -209,8 +209,12 @@ impl Sub for NumericValue {
             (NumericValue::NegativeZero, NumericValue::Rational(a)) => NumericValue::Rational(-a),
             (NumericValue::Decimal(a), NumericValue::NegativeZero) => NumericValue::Decimal(a), // x - (-0) = x
             (NumericValue::NegativeZero, NumericValue::Decimal(b)) => NumericValue::Decimal(-b), // (-0) - x = -x
-            (NumericValue::BigDecimal(a), NumericValue::NegativeZero) => NumericValue::BigDecimal(a),
-            (NumericValue::NegativeZero, NumericValue::BigDecimal(b)) => NumericValue::BigDecimal(-b),
+            (NumericValue::BigDecimal(a), NumericValue::NegativeZero) => {
+                NumericValue::BigDecimal(a)
+            }
+            (NumericValue::NegativeZero, NumericValue::BigDecimal(b)) => {
+                NumericValue::BigDecimal(-b)
+            }
             (NumericValue::NegativeZero, NumericValue::NegativeZero) => NumericValue::ZERO, // (-0) - (-0) = +0
 
             // BigDecimal operations
@@ -244,8 +248,6 @@ impl Sub for NumericValue {
 impl Mul for NumericValue {
     type Output = NumericValue;
     fn mul(self, rhs: NumericValue) -> NumericValue {
-        use num_rational::Ratio;
-
         match (self, rhs) {
             // Rational * Rational: stays Rational, or graduates to Decimal if denominator overflows
             (NumericValue::Rational(a), NumericValue::Rational(b)) => {
@@ -891,7 +893,7 @@ impl Rem for NumericValue {
                     NumericValue::BigDecimal(a % b_bd)
                 }
             }
-            (NumericValue::Rational(a), NumericValue::NegativeZero) => NumericValue::NaN,
+            (NumericValue::Rational(_a), NumericValue::NegativeZero) => NumericValue::NaN,
             (NumericValue::NegativeZero, NumericValue::Rational(b)) => {
                 if b.is_zero() {
                     NumericValue::NaN
@@ -1013,15 +1015,41 @@ forward_ref_binop!(impl Rem, rem for NumericValue);
 impl Add for Number {
     type Output = Number;
     fn add(self, rhs: Number) -> Number {
-        // Check if we graduated from Rational to Decimal (rational approximation)
-        let rational_approx = self.rational_approximation || rhs.rational_approximation ||
-            (matches!(self.value, NumericValue::Rational(_)) || matches!(rhs.value, NumericValue::Rational(_))) &&
-            matches!(self.value.clone() + rhs.value.clone(), NumericValue::Decimal(_));
+        use crate::ApproximationType;
+
+        // Check flags and types BEFORE moving
+        let self_trans = self.is_transcendental();
+        let rhs_trans = rhs.is_transcendental();
+        let self_rat_approx = self.is_rational_approximation();
+        let rhs_rat_approx = rhs.is_rational_approximation();
+        let self_rational = matches!(self.value, NumericValue::Rational(_));
+        let rhs_rational = matches!(rhs.value, NumericValue::Rational(_));
+
+        // Compute ONCE
+        let result_value = self.value + rhs.value;
+
+        // Transcendental dominates
+        let apprx = if self_trans || rhs_trans {
+            Some(ApproximationType::Transcendental)
+        } else if self_rat_approx || rhs_rat_approx {
+            // Check if result went back to Rational (flag should clear)
+            if matches!(result_value, NumericValue::Rational(_)) {
+                None
+            } else {
+                Some(ApproximationType::RationalApproximation)
+            }
+        } else if (self_rational || rhs_rational)
+            && matches!(result_value, NumericValue::Decimal(_))
+        {
+            // Rational graduated to Decimal
+            Some(ApproximationType::RationalApproximation)
+        } else {
+            None
+        };
 
         Number {
-            value: self.value + rhs.value,
-            transcendental: self.transcendental || rhs.transcendental,
-            rational_approximation: rational_approx,
+            value: result_value,
+            apprx,
         }
     }
 }
@@ -1029,14 +1057,38 @@ impl Add for Number {
 impl Sub for Number {
     type Output = Number;
     fn sub(self, rhs: Number) -> Number {
-        let rational_approx = self.rational_approximation || rhs.rational_approximation ||
-            (matches!(self.value, NumericValue::Rational(_)) || matches!(rhs.value, NumericValue::Rational(_))) &&
-            matches!(self.value.clone() - rhs.value.clone(), NumericValue::Decimal(_));
+        use crate::ApproximationType;
+
+        // Check flags and types BEFORE moving
+        let self_trans = self.is_transcendental();
+        let rhs_trans = rhs.is_transcendental();
+        let self_rat_approx = self.is_rational_approximation();
+        let rhs_rat_approx = rhs.is_rational_approximation();
+        let self_rational = matches!(self.value, NumericValue::Rational(_));
+        let rhs_rational = matches!(rhs.value, NumericValue::Rational(_));
+
+        // Compute ONCE
+        let result_value = self.value - rhs.value;
+
+        let apprx = if self_trans || rhs_trans {
+            Some(ApproximationType::Transcendental)
+        } else if self_rat_approx || rhs_rat_approx {
+            if matches!(result_value, NumericValue::Rational(_)) {
+                None
+            } else {
+                Some(ApproximationType::RationalApproximation)
+            }
+        } else if (self_rational || rhs_rational)
+            && matches!(result_value, NumericValue::Decimal(_))
+        {
+            Some(ApproximationType::RationalApproximation)
+        } else {
+            None
+        };
 
         Number {
-            value: self.value - rhs.value,
-            transcendental: self.transcendental || rhs.transcendental,
-            rational_approximation: rational_approx,
+            value: result_value,
+            apprx,
         }
     }
 }
@@ -1044,14 +1096,38 @@ impl Sub for Number {
 impl Mul for Number {
     type Output = Number;
     fn mul(self, rhs: Number) -> Number {
-        let rational_approx = self.rational_approximation || rhs.rational_approximation ||
-            (matches!(self.value, NumericValue::Rational(_)) || matches!(rhs.value, NumericValue::Rational(_))) &&
-            matches!(self.value.clone() * rhs.value.clone(), NumericValue::Decimal(_));
+        use crate::ApproximationType;
+
+        // Check flags and types BEFORE moving
+        let self_trans = self.is_transcendental();
+        let rhs_trans = rhs.is_transcendental();
+        let self_rat_approx = self.is_rational_approximation();
+        let rhs_rat_approx = rhs.is_rational_approximation();
+        let self_rational = matches!(self.value, NumericValue::Rational(_));
+        let rhs_rational = matches!(rhs.value, NumericValue::Rational(_));
+
+        // Compute ONCE
+        let result_value = self.value * rhs.value;
+
+        let apprx = if self_trans || rhs_trans {
+            Some(ApproximationType::Transcendental)
+        } else if self_rat_approx || rhs_rat_approx {
+            if matches!(result_value, NumericValue::Rational(_)) {
+                None
+            } else {
+                Some(ApproximationType::RationalApproximation)
+            }
+        } else if (self_rational || rhs_rational)
+            && matches!(result_value, NumericValue::Decimal(_))
+        {
+            Some(ApproximationType::RationalApproximation)
+        } else {
+            None
+        };
 
         Number {
-            value: self.value * rhs.value,
-            transcendental: self.transcendental || rhs.transcendental,
-            rational_approximation: rational_approx,
+            value: result_value,
+            apprx,
         }
     }
 }
@@ -1059,14 +1135,39 @@ impl Mul for Number {
 impl Div for Number {
     type Output = Number;
     fn div(self, rhs: Number) -> Number {
-        let rational_approx = self.rational_approximation || rhs.rational_approximation ||
-            (matches!(self.value, NumericValue::Rational(_)) || matches!(rhs.value, NumericValue::Rational(_))) &&
-            matches!(self.value.clone() / rhs.value.clone(), NumericValue::Decimal(_));
+        use crate::ApproximationType;
+
+        // Check flags and types BEFORE moving
+        let self_trans = self.is_transcendental();
+        let rhs_trans = rhs.is_transcendental();
+        let self_rat_approx = self.is_rational_approximation();
+        let rhs_rat_approx = rhs.is_rational_approximation();
+        let self_rational = matches!(self.value, NumericValue::Rational(_));
+        let rhs_rational = matches!(rhs.value, NumericValue::Rational(_));
+
+        // Compute ONCE
+        let result_value = self.value / rhs.value;
+
+        let apprx = if self_trans || rhs_trans {
+            Some(ApproximationType::Transcendental)
+        } else if self_rat_approx || rhs_rat_approx {
+            // Check if result went back to Rational (flag should clear)
+            if matches!(result_value, NumericValue::Rational(_)) {
+                None
+            } else {
+                Some(ApproximationType::RationalApproximation)
+            }
+        } else if (self_rational || rhs_rational)
+            && matches!(result_value, NumericValue::Decimal(_))
+        {
+            Some(ApproximationType::RationalApproximation)
+        } else {
+            None
+        };
 
         Number {
-            value: self.value / rhs.value,
-            transcendental: self.transcendental || rhs.transcendental,
-            rational_approximation: rational_approx,
+            value: result_value,
+            apprx,
         }
     }
 }
@@ -1074,10 +1175,25 @@ impl Div for Number {
 impl Rem for Number {
     type Output = Number;
     fn rem(self, rhs: Number) -> Number {
+        use crate::ApproximationType;
+
+        // Check flags BEFORE moving
+        let self_trans = self.is_transcendental();
+        let rhs_trans = rhs.is_transcendental();
+        let self_rat_approx = self.is_rational_approximation();
+        let rhs_rat_approx = rhs.is_rational_approximation();
+
+        let apprx = if self_trans || rhs_trans {
+            Some(ApproximationType::Transcendental)
+        } else if self_rat_approx || rhs_rat_approx {
+            Some(ApproximationType::RationalApproximation)
+        } else {
+            None
+        };
+
         Number {
             value: self.value % rhs.value,
-            transcendental: self.transcendental || rhs.transcendental,
-            rational_approximation: self.rational_approximation || rhs.rational_approximation,
+            apprx,
         }
     }
 }
@@ -1087,8 +1203,7 @@ impl Neg for Number {
     fn neg(self) -> Number {
         Number {
             value: -self.value,
-            transcendental: self.transcendental,
-            rational_approximation: self.rational_approximation,
+            apprx: self.apprx,
         }
     }
 }

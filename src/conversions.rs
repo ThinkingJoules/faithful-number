@@ -201,11 +201,7 @@ impl FromStr for Number {
             }
         };
 
-        Ok(Number {
-            value,
-            transcendental: false,
-            rational_approximation: false,
-        })
+        Ok(Number { value, apprx: None })
     }
 }
 
@@ -369,11 +365,7 @@ impl From<f64> for Number {
             }
         };
 
-        Number {
-            value,
-            transcendental: false,
-            rational_approximation: false,
-        }
+        Number { value, apprx: None }
     }
 }
 
