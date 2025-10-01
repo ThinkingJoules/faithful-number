@@ -5,6 +5,34 @@ use rust_decimal::Decimal;
 /// Type alias for Rational64 (exact fractions with i64 numerator/denominator)
 pub type Rational64 = Ratio<i64>;
 
+/// Try to downgrade Decimal to Rational if it represents an exact fraction that fits in i64
+fn try_decimal_to_rational(d: Decimal) -> Option<Rational64> {
+    // Get the mantissa and scale from Decimal
+    let mantissa = d.mantissa();
+    let scale = d.scale();
+
+    // Try to convert mantissa to i64
+    let numerator: i64 = mantissa.try_into().ok()?;
+
+    // If scale is 0, it's an integer
+    if scale == 0 {
+        return Some(Ratio::from_integer(numerator));
+    }
+
+    // Otherwise, denominator is 10^scale
+    // Check if 10^scale fits in i64
+    let denominator = 10i64.checked_pow(scale)?;
+
+    Some(Ratio::new(numerator, denominator))
+}
+
+/// Try to downgrade BigDecimal to Decimal if it fits
+fn try_bigdecimal_to_decimal(_bd: &BigDecimal) -> Option<Decimal> {
+    // TODO: implement BigDecimal → Decimal conversion
+    // For now, return None to keep as BigDecimal
+    None
+}
+
 /// A smart number type that supports multiple internal representations
 /// with automatic upgrades for precision and proper handling of IEEE special values
 #[derive(Debug, Clone)]
@@ -55,11 +83,21 @@ impl NumericValue {
     }
 
     pub fn from_decimal(d: Decimal) -> Self {
-        NumericValue::Decimal(d)
+        // Try to downgrade to Rational first
+        if let Some(r) = try_decimal_to_rational(d) {
+            NumericValue::Rational(r)
+        } else {
+            NumericValue::Decimal(d)
+        }
     }
 
     pub fn from_bigdecimal(bd: BigDecimal) -> Self {
-        NumericValue::BigDecimal(bd)
+        // Try to downgrade to Decimal first, then Rational
+        if let Some(d) = try_bigdecimal_to_decimal(&bd) {
+            Self::from_decimal(d)
+        } else {
+            NumericValue::BigDecimal(bd)
+        }
     }
 
     // Type checking predicates
@@ -245,7 +283,7 @@ impl Number {
         !self.transcendental
     }
 
-    pub fn is_approximated(&self) -> bool {
+    pub fn is_transcendental(&self) -> bool {
         self.transcendental
     }
 
@@ -268,29 +306,6 @@ impl Number {
 
     pub fn to_decimal(&self) -> Option<Decimal> {
         self.value.to_decimal()
-    }
-
-    // Internal helper to create a transcendental number
-    pub(crate) fn transcendental(value: NumericValue) -> Self {
-        Number {
-            value,
-            transcendental: true,
-            rational_approximation: false,
-        }
-    }
-
-    // Internal helper to create a rational approximation
-    pub(crate) fn rational_approx(value: NumericValue) -> Self {
-        Number {
-            value,
-            transcendental: false,
-            rational_approximation: true,
-        }
-    }
-
-    // Internal helper to access the value
-    pub(crate) fn into_value(self) -> NumericValue {
-        self.value
     }
 
     pub(crate) fn value(&self) -> &NumericValue {

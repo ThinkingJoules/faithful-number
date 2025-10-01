@@ -844,7 +844,7 @@ impl Number {
     pub fn floor(self) -> Number {
         Number {
             value: self.value.floor(),
-            transcendental: self.transcendental,
+            transcendental: false, // Rounding removes approximate decimal digits
             rational_approximation: self.rational_approximation,
         }
     }
@@ -852,7 +852,7 @@ impl Number {
     pub fn ceil(self) -> Number {
         Number {
             value: self.value.ceil(),
-            transcendental: self.transcendental,
+            transcendental: false, // Rounding removes approximate decimal digits
             rational_approximation: self.rational_approximation,
         }
     }
@@ -860,7 +860,7 @@ impl Number {
     pub fn round(self) -> Number {
         Number {
             value: self.value.round(),
-            transcendental: self.transcendental,
+            transcendental: false, // Rounding removes approximate decimal digits
             rational_approximation: self.rational_approximation,
         }
     }
@@ -868,7 +868,7 @@ impl Number {
     pub fn round_dp(self, dp: u32) -> Number {
         Number {
             value: self.value.round_dp(dp),
-            transcendental: self.transcendental,
+            transcendental: false, // Rounding removes approximate decimal digits
             rational_approximation: self.rational_approximation,
         }
     }
@@ -876,16 +876,22 @@ impl Number {
     pub fn trunc(self) -> Number {
         Number {
             value: self.value.trunc(),
-            transcendental: self.transcendental,
+            transcendental: false, // Truncation removes approximate decimal digits
             rational_approximation: self.rational_approximation,
         }
     }
 
     pub fn sqrt(self) -> Number {
+        let result_value = self.value.sqrt();
+
+        // Only transcendental if result is a Decimal (approximation)
+        // If result is Rational (like sqrt(4) = 2), it's exact
+        let is_transcendental = matches!(result_value, NumericValue::Decimal(_));
+
         Number {
-            value: self.value.sqrt(),
-            transcendental: true, // sqrt is generally approximated
-            rational_approximation: false, // transcendental trumps rational_approximation
+            value: result_value,
+            transcendental: is_transcendental,
+            rational_approximation: false,
         }
     }
 

@@ -323,7 +323,7 @@ fn ln_ln_e() {
 
     // Our result should be close to the f64 result (we're comparing behaviors)
     assert!(
-        result == f64_as_number || result.is_approximated(),
+        result == f64_as_number || result.is_transcendental(),
         "ln(e) should produce an approximated result"
     );
     println!("ln_ln_e: representation = {}", result.representation());
@@ -476,7 +476,7 @@ fn sin_sin_pi_2() {
 
     // Our result should be at least as good as f64
     assert!(
-        result == f64_as_number || result.is_approximated(),
+        result == f64_as_number || result.is_transcendental(),
         "sin(π/2) should produce an approximated result close to 1"
     );
     println!("sin_sin_pi_2: representation = {}", result.representation());
@@ -496,7 +496,7 @@ fn sqrt_sqrt_2() {
 
     // We should be at least as good as f64
     assert!(
-        result == f64_as_number || result.is_approximated(),
+        result == f64_as_number || result.is_transcendental(),
         "sqrt(2) should produce an approximated result"
     );
     println!("sqrt_sqrt_2: representation = {}", result.representation());
