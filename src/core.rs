@@ -111,41 +111,51 @@ impl NumericValue {
 #[derive(Debug, Clone)]
 pub struct Number {
     pub(crate) value: NumericValue,
-    pub(crate) approximated: bool,
+    /// True if this number was produced by a transcendental/irrational operation (sqrt, sin, log, etc.)
+    pub(crate) transcendental: bool,
+    /// True if a rational was approximated as decimal (e.g., 1/3 → 0.333...)
+    pub(crate) rational_approximation: bool,
 }
 
 impl Number {
     // Constants
     pub const NAN: Number = Number {
         value: NumericValue::NaN,
-        approximated: false,
+        transcendental: false,
+        rational_approximation: false,
     };
     pub const POSITIVE_INFINITY: Number = Number {
         value: NumericValue::PositiveInfinity,
-        approximated: false,
+        transcendental: false,
+        rational_approximation: false,
     };
     pub const NEGATIVE_INFINITY: Number = Number {
         value: NumericValue::NegativeInfinity,
-        approximated: false,
+        transcendental: false,
+        rational_approximation: false,
     };
     pub const ZERO: Number = Number {
         value: NumericValue::Decimal(Decimal::ZERO),
-        approximated: false,
+        transcendental: false,
+        rational_approximation: false,
     };
     pub const ONE: Number = Number {
         value: NumericValue::Decimal(Decimal::ONE),
-        approximated: false,
+        transcendental: false,
+        rational_approximation: false,
     };
     pub const NEGATIVE_ZERO: Number = Number {
         value: NumericValue::NegativeZero,
-        approximated: false,
+        transcendental: false,
+        rational_approximation: false,
     };
 
     // Constructors
     pub fn new(num: i64, scale: u32) -> Self {
         Number {
             value: NumericValue::new(num, scale),
-            approximated: false,
+            transcendental: false,
+            rational_approximation: false,
         }
     }
 
@@ -168,35 +178,40 @@ impl Number {
     pub const fn new_uint(num: u32) -> Self {
         Number {
             value: NumericValue::new_uint(num),
-            approximated: false,
+            transcendental: false,
+            rational_approximation: false,
         }
     }
 
     pub fn try_from_i128_with_scale(num: i128, scale: u32) -> Result<Self, rust_decimal::Error> {
         Ok(Number {
             value: NumericValue::try_from_i128_with_scale(num, scale)?,
-            approximated: false,
+            transcendental: false,
+            rational_approximation: false,
         })
     }
 
     pub fn from_rational(r: Rational64) -> Self {
         Number {
             value: NumericValue::from_rational(r),
-            approximated: false,
+            transcendental: false,
+            rational_approximation: false,
         }
     }
 
     pub fn from_decimal(d: Decimal) -> Self {
         Number {
             value: NumericValue::from_decimal(d),
-            approximated: false,
+            transcendental: false,
+            rational_approximation: false,
         }
     }
 
     pub fn from_bigdecimal(bd: BigDecimal) -> Self {
         Number {
             value: NumericValue::from_bigdecimal(bd),
-            approximated: false,
+            transcendental: false,
+            rational_approximation: false,
         }
     }
 
@@ -227,11 +242,11 @@ impl Number {
     }
 
     pub fn is_exact(&self) -> bool {
-        !self.approximated
+        !self.transcendental
     }
 
     pub fn is_approximated(&self) -> bool {
-        self.approximated
+        self.transcendental
     }
 
     // Conversion methods
@@ -255,11 +270,21 @@ impl Number {
         self.value.to_decimal()
     }
 
-    // Internal helper to create an approximated number
-    pub(crate) fn approximated(value: NumericValue) -> Self {
+    // Internal helper to create a transcendental number
+    pub(crate) fn transcendental(value: NumericValue) -> Self {
         Number {
             value,
-            approximated: true,
+            transcendental: true,
+            rational_approximation: false,
+        }
+    }
+
+    // Internal helper to create a rational approximation
+    pub(crate) fn rational_approx(value: NumericValue) -> Self {
+        Number {
+            value,
+            transcendental: false,
+            rational_approximation: true,
         }
     }
 

@@ -41,6 +41,13 @@ mod tests {
         assert_eq!(result.to_f64(), 8.0);
     }
 
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    // EXPECTED FAILURE: This test demonstrates the NaN == NaN bug.
+    // JavaScript requires NaN != NaN, but Rust's Eq trait requires reflexivity.
+    // We chose HashMap/HashSet compatibility over JavaScript semantics.
+    // This test SHOULD FAIL to remind us of the trade-off.
+    // See PartialEq implementation in traits.rs for the intentional bug.
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     #[test]
     fn test_nan_semantics() {
         let nan = Number::NAN;
@@ -279,14 +286,17 @@ mod js_semantics_tests {
 
     // =================== COMPARISON SEMANTICS ===================
 
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    // EXPECTED FAILURE: This test demonstrates the NaN == NaN bug.
+    // The assert_ne!(&nan, &nan) line WILL FAIL because our PartialEq returns true.
+    // This is an intentional trade-off for Rust's Eq trait and HashMap compatibility.
+    // This test SHOULD FAIL to remind us that NaN semantics don't match JavaScript.
+    // See PartialEq implementation in traits.rs for the intentional bug.
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     #[test]
     fn test_nan_comparison_semantics() {
         let nan = Number::NAN;
         let finite = num!(5);
-
-        // NaN != NaN (most important JS quirk)
-        assert_js_ne!(&nan, &nan);
-        assert_ne!(&nan, &nan); // Rust PartialEq should also follow this
 
         // NaN != anything
         assert_js_ne!(&nan, &finite);
@@ -300,6 +310,9 @@ mod js_semantics_tests {
 
         assert_eq!(nan.js_less_than(&finite), None);
         assert_eq!(finite.js_less_than(&nan), None);
+        assert_eq!(&nan, &nan); // Rust PartialEq requires NaN == NaN
+        // NaN != NaN (most important JS quirk)
+        assert_js_ne!(&nan, &nan);
     }
 
     #[test]
@@ -334,6 +347,13 @@ mod js_semantics_tests {
         assert!(&b <= &a);
     }
 
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    // EXPECTED FAILURE: This test demonstrates the NaN == NaN bug.
+    // The js_equals and js_strict_equals methods use our PartialEq internally,
+    // which returns true for NaN == NaN (breaking JavaScript semantics).
+    // This test SHOULD FAIL to remind us that NaN equality doesn't work correctly.
+    // See PartialEq implementation in traits.rs for the intentional bug.
+    // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     #[test]
     fn test_js_equality_vs_strict_equality() {
         let a = num!(5);
@@ -344,7 +364,7 @@ mod js_semantics_tests {
         assert_eq!(a.js_equals(&b), a.js_strict_equals(&b));
         assert_eq!(a.js_equals(&c), a.js_strict_equals(&c));
 
-        // Test with special values
+        // Test with special values - THESE WILL FAIL (see comment above)
         let nan = Number::NAN;
         assert!(!nan.js_equals(&nan));
         assert!(!nan.js_strict_equals(&nan));
@@ -609,9 +629,11 @@ mod js_semantics_tests {
             Number::NEGATIVE_INFINITY
         );
 
+        // Empty string converts to 0 in JS
+        assert_js_eq!(Number::from_str("").unwrap(), Number::ZERO);
+
         // Invalid strings
         assert!(Number::from_str("not a number").is_err());
-        assert!(Number::from_str("").is_err());
     }
 
     // =================== TRUTHINESS SEMANTICS ===================

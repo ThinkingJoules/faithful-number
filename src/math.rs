@@ -1,7 +1,8 @@
 use crate::{Number, NumericValue};
 use rust_decimal::Decimal;
+use num_rational::Ratio;
 
-use num_traits::{FromPrimitive, Signed, ToPrimitive};
+use num_traits::{FromPrimitive, Signed, ToPrimitive, Zero};
 use std::str::FromStr;
 
 impl NumericValue {
@@ -101,8 +102,54 @@ impl NumericValue {
 
     pub fn sqrt(self) -> NumericValue {
         match self {
-            NumericValue::Rational(_) => {
-                unimplemented!("Rational sqrt not yet implemented - need to upgrade to Decimal")
+            NumericValue::Rational(r) => {
+                // Check for negative (NaN) and zero first
+                if r < Ratio::from_integer(0) {
+                    return NumericValue::NaN;
+                }
+                if r.is_zero() {
+                    return NumericValue::Rational(Ratio::from_integer(0));
+                }
+
+                // Check for perfect square using integer arithmetic only
+                let numer = *r.numer();
+                let denom = *r.denom();
+
+                // Helper function to check if a number is a perfect square using binary search
+                fn is_perfect_square(n: i64) -> Option<i64> {
+                    if n < 0 {
+                        return None;
+                    }
+                    if n == 0 || n == 1 {
+                        return Some(n);
+                    }
+
+                    // Binary search for the square root
+                    let mut low = 1i64;
+                    let mut high = n;
+
+                    while low <= high {
+                        let mid = low + (high - low) / 2;
+
+                        // Avoid overflow by checking mid * mid carefully
+                        match mid.checked_mul(mid) {
+                            Some(square) if square == n => return Some(mid),
+                            Some(square) if square < n => low = mid + 1,
+                            _ => high = mid - 1,
+                        }
+                    }
+                    None
+                }
+
+                // Check if both numerator and denominator are perfect squares
+                if let (Some(numer_sqrt), Some(denom_sqrt)) =
+                    (is_perfect_square(numer), is_perfect_square(denom)) {
+                    return NumericValue::Rational(Ratio::new(numer_sqrt, denom_sqrt));
+                }
+
+                // Not a perfect square - convert to Decimal for approximation
+                let decimal = Decimal::from(numer) / Decimal::from(denom);
+                NumericValue::Decimal(decimal).sqrt()
             }
             NumericValue::Decimal(d) => {
                 if d < Decimal::ZERO {
@@ -789,150 +836,171 @@ impl Number {
     pub fn abs(self) -> Number {
         Number {
             value: self.value.abs(),
-            approximated: self.approximated,
+            transcendental: self.transcendental,
+            rational_approximation: self.rational_approximation,
         }
     }
 
     pub fn floor(self) -> Number {
         Number {
             value: self.value.floor(),
-            approximated: self.approximated,
+            transcendental: self.transcendental,
+            rational_approximation: self.rational_approximation,
         }
     }
 
     pub fn ceil(self) -> Number {
         Number {
             value: self.value.ceil(),
-            approximated: self.approximated,
+            transcendental: self.transcendental,
+            rational_approximation: self.rational_approximation,
         }
     }
 
     pub fn round(self) -> Number {
         Number {
             value: self.value.round(),
-            approximated: self.approximated,
+            transcendental: self.transcendental,
+            rational_approximation: self.rational_approximation,
         }
     }
 
     pub fn round_dp(self, dp: u32) -> Number {
         Number {
             value: self.value.round_dp(dp),
-            approximated: self.approximated,
+            transcendental: self.transcendental,
+            rational_approximation: self.rational_approximation,
         }
     }
 
     pub fn trunc(self) -> Number {
         Number {
             value: self.value.trunc(),
-            approximated: self.approximated,
+            transcendental: self.transcendental,
+            rational_approximation: self.rational_approximation,
         }
     }
 
     pub fn sqrt(self) -> Number {
         Number {
             value: self.value.sqrt(),
-            approximated: true, // sqrt is generally approximated
+            transcendental: true, // sqrt is generally approximated
+            rational_approximation: false, // transcendental trumps rational_approximation
         }
     }
 
     pub fn pow(self, exponent: Number) -> Number {
         let approximated =
-            self.approximated || exponent.approximated || self.is_transcendental_pow(&exponent);
+            self.transcendental || exponent.transcendental || self.is_transcendental_pow(&exponent);
         Number {
             value: self.value.pow(exponent.value),
-            approximated,
+            transcendental: approximated,
+            rational_approximation: false, // transcendental trumps rational_approximation
         }
     }
 
-    // Transcendental functions - always mark as approximated
+    // Transcendental functions - always mark as transcendental
     pub fn log(self) -> Number {
         Number {
             value: self.value.log(),
-            approximated: true,
+            transcendental: true,
+            rational_approximation: false,
         }
     }
 
     pub fn log10(self) -> Number {
         Number {
             value: self.value.log10(),
-            approximated: true,
+            transcendental: true,
+            rational_approximation: false,
         }
     }
 
     pub fn log2(self) -> Number {
         Number {
             value: self.value.log2(),
-            approximated: true,
+            transcendental: true,
+            rational_approximation: false,
         }
     }
 
     pub fn exp(self) -> Number {
         Number {
             value: self.value.exp(),
-            approximated: true,
+            transcendental: true,
+            rational_approximation: false,
         }
     }
 
     pub fn sin(self) -> Number {
         Number {
             value: self.value.sin(),
-            approximated: true,
+            transcendental: true,
+            rational_approximation: false,
         }
     }
 
     pub fn cos(self) -> Number {
         Number {
             value: self.value.cos(),
-            approximated: true,
+            transcendental: true,
+            rational_approximation: false,
         }
     }
 
     pub fn tan(self) -> Number {
         Number {
             value: self.value.tan(),
-            approximated: true,
+            transcendental: true,
+            rational_approximation: false,
         }
     }
 
     pub fn asin(self) -> Number {
         Number {
             value: self.value.asin(),
-            approximated: true,
+            transcendental: true,
+            rational_approximation: false,
         }
     }
 
     pub fn acos(self) -> Number {
         Number {
             value: self.value.acos(),
-            approximated: true,
+            transcendental: true,
+            rational_approximation: false,
         }
     }
 
     pub fn atan(self) -> Number {
         Number {
             value: self.value.atan(),
-            approximated: true,
+            transcendental: true,
+            rational_approximation: false,
         }
     }
 
     pub fn atan2(self, x: Number) -> Number {
         Number {
             value: self.value.atan2(x.value),
-            approximated: true,
+            transcendental: true,
+            rational_approximation: false,
         }
     }
 
     pub fn increment(self) -> Number {
         Number {
             value: self.value.increment(),
-            approximated: self.approximated,
+            transcendental: self.transcendental,
+            rational_approximation: self.rational_approximation,
         }
     }
 
     pub fn decrement(self) -> Number {
         Number {
             value: self.value.decrement(),
-            approximated: self.approximated,
+            transcendental: self.transcendental,
+            rational_approximation: self.rational_approximation,
         }
     }
 

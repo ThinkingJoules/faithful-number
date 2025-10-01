@@ -203,69 +203,92 @@ impl FromStr for Number {
 
         Ok(Number {
             value,
-            approximated: false,
+            transcendental: false,
+            rational_approximation: false,
         })
     }
 }
 
-// Implement From for primitives
+// Implement From for primitives - all integers start as Rational
 impl From<i8> for Number {
     fn from(n: i8) -> Number {
-        Number::from_decimal(Decimal::from(n))
+        use num_rational::Ratio;
+        Number::from_rational(Ratio::from_integer(n as i64))
     }
 }
 
 impl From<i16> for Number {
     fn from(n: i16) -> Number {
-        Number::from_decimal(Decimal::from(n))
+        use num_rational::Ratio;
+        Number::from_rational(Ratio::from_integer(n as i64))
     }
 }
 
 impl From<i32> for Number {
     fn from(n: i32) -> Number {
-        Number::from_decimal(Decimal::from(n))
+        use num_rational::Ratio;
+        Number::from_rational(Ratio::from_integer(n as i64))
     }
 }
 
 impl From<i64> for Number {
     fn from(n: i64) -> Number {
-        Number::from_decimal(Decimal::from(n))
+        use num_rational::Ratio;
+        Number::from_rational(Ratio::from_integer(n))
     }
 }
 
 impl From<isize> for Number {
     fn from(n: isize) -> Number {
-        Number::from_decimal(Decimal::from(n))
+        use num_rational::Ratio;
+        Number::from_rational(Ratio::from_integer(n as i64))
     }
 }
 
 impl From<u8> for Number {
     fn from(n: u8) -> Number {
-        Number::from_decimal(Decimal::from(n))
+        use num_rational::Ratio;
+        Number::from_rational(Ratio::from_integer(n as i64))
     }
 }
 
 impl From<u16> for Number {
     fn from(n: u16) -> Number {
-        Number::from_decimal(Decimal::from(n))
+        use num_rational::Ratio;
+        Number::from_rational(Ratio::from_integer(n as i64))
     }
 }
 
 impl From<u32> for Number {
     fn from(n: u32) -> Number {
-        Number::from_decimal(Decimal::from(n))
+        use num_rational::Ratio;
+        Number::from_rational(Ratio::from_integer(n as i64))
     }
 }
 
 impl From<u64> for Number {
     fn from(n: u64) -> Number {
-        Number::from_decimal(Decimal::from(n))
+        // u64 might not fit in i64, check first
+        if let Ok(n_i64) = i64::try_from(n) {
+            use num_rational::Ratio;
+            Number::from_rational(Ratio::from_integer(n_i64))
+        } else {
+            // Fallback to Decimal for large u64
+            Number::from_decimal(Decimal::from(n))
+        }
     }
 }
 
 impl From<usize> for Number {
     fn from(n: usize) -> Number {
-        Number::from_decimal(Decimal::from(n))
+        // usize might not fit in i64, check first
+        if let Ok(n_i64) = i64::try_from(n) {
+            use num_rational::Ratio;
+            Number::from_rational(Ratio::from_integer(n_i64))
+        } else {
+            // Fallback to Decimal for large usize
+            Number::from_decimal(Decimal::from(n as u64))
+        }
     }
 }
 
@@ -292,7 +315,52 @@ impl From<f64> for Number {
                 NumericValue::ZERO
             }
         } else {
-            // Convert f64 to Decimal - this might lose precision for very large numbers
+            // Try to extract rational representation from f64
+            // Many f64 values can be exactly represented as rationals
+            use num_rational::Ratio;
+
+            // Extract mantissa and exponent
+            let bits = f.to_bits();
+            let sign = if bits >> 63 == 0 { 1i64 } else { -1i64 };
+            let exponent = ((bits >> 52) & 0x7ff) as i32 - 1023;
+            let mantissa = if exponent == -1023 {
+                (bits & 0xfffffffffffff) << 1
+            } else {
+                (bits & 0xfffffffffffff) | 0x10000000000000
+            };
+
+            // Try to represent as rational
+            if exponent >= 0 {
+                // Positive exponent: mantissa * 2^exponent / 2^52
+                let numerator = mantissa as i128 * sign as i128;
+                let shift = exponent - 52;
+                if shift >= 0 {
+                    // multiply numerator by 2^shift
+                    if let Some(shifted) = numerator.checked_shl(shift as u32) {
+                        if let Ok(num_i64) = i64::try_from(shifted) {
+                            return Number::from_rational(Ratio::from_integer(num_i64));
+                        }
+                    }
+                } else {
+                    // numerator / 2^(-shift)
+                    let denom = 1i64 << (-shift);
+                    if let Ok(num_i64) = i64::try_from(numerator) {
+                        return Number::from_rational(Ratio::new(num_i64, denom));
+                    }
+                }
+            } else {
+                // Negative exponent: mantissa / 2^(52 - exponent)
+                let numerator = mantissa as i128 * sign as i128;
+                let denom_exp = 52 - exponent;
+                if denom_exp <= 63 {
+                    let denom = 1i64 << denom_exp;
+                    if let Ok(num_i64) = i64::try_from(numerator) {
+                        return Number::from_rational(Ratio::new(num_i64, denom));
+                    }
+                }
+            }
+
+            // Fallback: Convert f64 to Decimal
             if let Some(d) = Decimal::from_f64(f) {
                 NumericValue::Decimal(d)
             } else {
@@ -303,7 +371,8 @@ impl From<f64> for Number {
 
         Number {
             value,
-            approximated: false,
+            transcendental: false,
+            rational_approximation: false,
         }
     }
 }

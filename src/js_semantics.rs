@@ -22,7 +22,8 @@ impl Number {
     pub fn unsigned_right_shift(self, bits: Number) -> Number {
         Number {
             value: self.value.unsigned_right_shift(bits.value),
-            approximated: self.approximated || bits.approximated,
+            transcendental: self.transcendental || bits.transcendental,
+            rational_approximation: self.rational_approximation || bits.rational_approximation,
         }
     }
 
@@ -166,13 +167,13 @@ impl NumericValue {
     pub(crate) fn to_js_string(&self) -> String {
         match self {
             NumericValue::Rational(r) => {
-                // Display rational as decimal (convert via f64 for now)
-                // TODO: Consider displaying as fraction or exact decimal
+                // Display rational as decimal (convert to Decimal to maintain precision)
                 if r.is_integer() {
                     r.to_integer().to_string()
                 } else {
-                    let f = r.numer().to_f64().unwrap_or(0.0) / r.denom().to_f64().unwrap_or(1.0);
-                    f.to_string()
+                    use rust_decimal::Decimal;
+                    let decimal = Decimal::from(*r.numer()) / Decimal::from(*r.denom());
+                    decimal.normalize().to_string()
                 }
             }
             NumericValue::Decimal(d) => {

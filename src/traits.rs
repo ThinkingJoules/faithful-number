@@ -167,7 +167,16 @@ impl FromPrimitive for Number {
 impl Display for Number {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match &self.value {
-            NumericValue::Rational(r) => write!(f, "{}/{}", r.numer(), r.denom()),
+            NumericValue::Rational(r) => {
+                // Display as decimal (JS semantics)
+                if r.is_integer() {
+                    write!(f, "{}", r.to_integer())
+                } else {
+                    // Convert to Decimal for display (maintains precision)
+                    let decimal = Decimal::from(*r.numer()) / Decimal::from(*r.denom());
+                    write!(f, "{}", decimal.normalize())
+                }
+            }
             NumericValue::Decimal(d) => write!(f, "{}", d),
             NumericValue::BigDecimal(bd) => write!(f, "{}", bd),
             NumericValue::NegativeZero => write!(f, "0"), // -0 displays as "0"
@@ -206,7 +215,13 @@ impl Hash for Number {
 impl PartialEq for Number {
     fn eq(&self, other: &Number) -> bool {
         match (self.value(), other.value()) {
-            // For Rust compatibility, NaN equals itself (breaking JS semantics)
+            // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+            // INTENTIONAL BUG: NaN == NaN returns true (WRONG for JS semantics!)
+            // This is required for Rust's Eq trait which demands reflexivity (a == a).
+            // JavaScript semantics require NaN != NaN, but Rust's HashMap/HashSet need Eq.
+            // DO NOT CHANGE THIS WITHOUT UNDERSTANDING THE TRADE-OFF!
+            // See test_nan_semantics and test_js_equality_vs_strict_equality for failures.
+            // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             (NumericValue::NaN, NumericValue::NaN) => true,
             (NumericValue::NaN, _) | (_, NumericValue::NaN) => false,
             (NumericValue::Rational(a), NumericValue::Rational(b)) => a == b,
@@ -276,18 +291,91 @@ impl PartialEq for Number {
 impl PartialOrd for Number {
     fn partial_cmp(&self, other: &Number) -> Option<Ordering> {
         match (self.value(), other.value()) {
-            // Rational and BigDecimal - not yet implemented (must come first to catch all combinations)
-            (NumericValue::Rational(_), _) | (_, NumericValue::Rational(_)) => {
-                unimplemented!("Rational partial_cmp not yet implemented")
+            // NaN comparisons - in JS, NaN comparisons return undefined (None)
+            (NumericValue::NaN, _) | (_, NumericValue::NaN) => None,
+
+            // Rational comparisons
+            (NumericValue::Rational(a), NumericValue::Rational(b)) => a.partial_cmp(b),
+            (NumericValue::Rational(a), NumericValue::Decimal(b)) => {
+                // Convert Rational to Decimal for comparison
+                let a_dec = Decimal::from(*a.numer()) / Decimal::from(*a.denom());
+                a_dec.partial_cmp(b)
             }
-            (NumericValue::BigDecimal(_), _) | (_, NumericValue::BigDecimal(_)) => {
-                unimplemented!("BigDecimal partial_cmp not yet implemented")
+            (NumericValue::Decimal(a), NumericValue::Rational(b)) => {
+                let b_dec = Decimal::from(*b.numer()) / Decimal::from(*b.denom());
+                a.partial_cmp(&b_dec)
+            }
+            (NumericValue::Rational(a), NumericValue::BigDecimal(b)) => {
+                use bigdecimal::{BigDecimal, num_bigint::BigInt};
+                let numer_bd = BigDecimal::from(BigInt::from(*a.numer()));
+                let denom_bd = BigDecimal::from(BigInt::from(*a.denom()));
+                let a_bd = numer_bd / denom_bd;
+                a_bd.partial_cmp(b)
+            }
+            (NumericValue::BigDecimal(a), NumericValue::Rational(b)) => {
+                use bigdecimal::{BigDecimal, num_bigint::BigInt};
+                let numer_bd = BigDecimal::from(BigInt::from(*b.numer()));
+                let denom_bd = BigDecimal::from(BigInt::from(*b.denom()));
+                let b_bd = numer_bd / denom_bd;
+                a.partial_cmp(&b_bd)
+            }
+            (NumericValue::Rational(a), NumericValue::NegativeZero) => {
+                if a.is_zero() {
+                    Some(Ordering::Equal)
+                } else if a.is_positive() {
+                    Some(Ordering::Greater)
+                } else {
+                    Some(Ordering::Less)
+                }
+            }
+            (NumericValue::NegativeZero, NumericValue::Rational(a)) => {
+                if a.is_zero() {
+                    Some(Ordering::Equal)
+                } else if a.is_positive() {
+                    Some(Ordering::Less)
+                } else {
+                    Some(Ordering::Greater)
+                }
             }
 
-            // NaN comparisons now return Some when both are NaN
-            (NumericValue::NaN, NumericValue::NaN) => Some(Ordering::Equal),
-            (NumericValue::NaN, _) => Some(Ordering::Less),
-            (_, NumericValue::NaN) => Some(Ordering::Greater),
+            // BigDecimal comparisons
+            (NumericValue::BigDecimal(a), NumericValue::BigDecimal(b)) => a.partial_cmp(b),
+            (NumericValue::BigDecimal(a), NumericValue::Decimal(b)) => {
+                use bigdecimal::BigDecimal;
+                let b_str = b.to_string();
+                if let Ok(b_bd) = b_str.parse::<BigDecimal>() {
+                    a.partial_cmp(&b_bd)
+                } else {
+                    None
+                }
+            }
+            (NumericValue::Decimal(a), NumericValue::BigDecimal(b)) => {
+                use bigdecimal::BigDecimal;
+                let a_str = a.to_string();
+                if let Ok(a_bd) = a_str.parse::<BigDecimal>() {
+                    a_bd.partial_cmp(b)
+                } else {
+                    None
+                }
+            }
+            (NumericValue::BigDecimal(a), NumericValue::NegativeZero) => {
+                if a.is_zero() {
+                    Some(Ordering::Equal)
+                } else if a.is_positive() {
+                    Some(Ordering::Greater)
+                } else {
+                    Some(Ordering::Less)
+                }
+            }
+            (NumericValue::NegativeZero, NumericValue::BigDecimal(a)) => {
+                if a.is_zero() {
+                    Some(Ordering::Equal)
+                } else if a.is_positive() {
+                    Some(Ordering::Less)
+                } else {
+                    Some(Ordering::Greater)
+                }
+            }
 
             (NumericValue::Decimal(a), NumericValue::Decimal(b)) => a.partial_cmp(b),
             (NumericValue::NegativeInfinity, NumericValue::NegativeInfinity)
@@ -326,15 +414,7 @@ impl Eq for Number {}
 impl Ord for Number {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self.value(), other.value()) {
-            // Rational and BigDecimal - not yet implemented
-            (NumericValue::Rational(_), _) | (_, NumericValue::Rational(_)) => {
-                unimplemented!("Rational cmp not yet implemented")
-            }
-            (NumericValue::BigDecimal(_), _) | (_, NumericValue::BigDecimal(_)) => {
-                unimplemented!("BigDecimal cmp not yet implemented")
-            }
-
-            // NaN handling - consistent with PartialEq
+            // NaN handling - consistent with PartialEq (NaN is ordered as less than everything)
             (NumericValue::NaN, NumericValue::NaN) => Ordering::Equal,
             (NumericValue::NaN, _) => Ordering::Less,
             (_, NumericValue::NaN) => Ordering::Greater,
@@ -347,7 +427,83 @@ impl Ord for Number {
             (NumericValue::PositiveInfinity, _) => Ordering::Greater,
             (_, NumericValue::PositiveInfinity) => Ordering::Less,
 
-            // Finite numbers and zeros
+            // Rational comparisons
+            (NumericValue::Rational(a), NumericValue::Rational(b)) => a.cmp(b),
+            (NumericValue::Rational(a), NumericValue::Decimal(b)) => {
+                let a_dec = Decimal::from(*a.numer()) / Decimal::from(*a.denom());
+                a_dec.cmp(b)
+            }
+            (NumericValue::Decimal(a), NumericValue::Rational(b)) => {
+                let b_dec = Decimal::from(*b.numer()) / Decimal::from(*b.denom());
+                a.cmp(&b_dec)
+            }
+            (NumericValue::Rational(a), NumericValue::BigDecimal(b)) => {
+                use bigdecimal::{BigDecimal, num_bigint::BigInt};
+                let numer_bd = BigDecimal::from(BigInt::from(*a.numer()));
+                let denom_bd = BigDecimal::from(BigInt::from(*a.denom()));
+                let a_bd = numer_bd / denom_bd;
+                a_bd.cmp(b)
+            }
+            (NumericValue::BigDecimal(a), NumericValue::Rational(b)) => {
+                use bigdecimal::{BigDecimal, num_bigint::BigInt};
+                let numer_bd = BigDecimal::from(BigInt::from(*b.numer()));
+                let denom_bd = BigDecimal::from(BigInt::from(*b.denom()));
+                let b_bd = numer_bd / denom_bd;
+                a.cmp(&b_bd)
+            }
+            (NumericValue::Rational(a), NumericValue::NegativeZero) => {
+                if a.is_zero() {
+                    Ordering::Equal
+                } else if a.is_positive() {
+                    Ordering::Greater
+                } else {
+                    Ordering::Less
+                }
+            }
+            (NumericValue::NegativeZero, NumericValue::Rational(a)) => {
+                if a.is_zero() {
+                    Ordering::Equal
+                } else if a.is_positive() {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                }
+            }
+
+            // BigDecimal comparisons
+            (NumericValue::BigDecimal(a), NumericValue::BigDecimal(b)) => a.cmp(b),
+            (NumericValue::BigDecimal(a), NumericValue::Decimal(b)) => {
+                use bigdecimal::BigDecimal;
+                let b_str = b.to_string();
+                let b_bd: BigDecimal = b_str.parse().unwrap();
+                a.cmp(&b_bd)
+            }
+            (NumericValue::Decimal(a), NumericValue::BigDecimal(b)) => {
+                use bigdecimal::BigDecimal;
+                let a_str = a.to_string();
+                let a_bd: BigDecimal = a_str.parse().unwrap();
+                a_bd.cmp(b)
+            }
+            (NumericValue::BigDecimal(a), NumericValue::NegativeZero) => {
+                if a.is_zero() {
+                    Ordering::Equal
+                } else if a.is_positive() {
+                    Ordering::Greater
+                } else {
+                    Ordering::Less
+                }
+            }
+            (NumericValue::NegativeZero, NumericValue::BigDecimal(a)) => {
+                if a.is_zero() {
+                    Ordering::Equal
+                } else if a.is_positive() {
+                    Ordering::Less
+                } else {
+                    Ordering::Greater
+                }
+            }
+
+            // Decimal comparisons
             (NumericValue::Decimal(a), NumericValue::Decimal(b)) => a.cmp(b),
             (NumericValue::NegativeZero, NumericValue::NegativeZero) => Ordering::Equal,
 
