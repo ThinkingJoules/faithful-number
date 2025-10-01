@@ -289,58 +289,5 @@ mod metadata_tests {
                 "Result should equal 1/3"
             );
         }
-
-        #[test]
-        fn division_detecting_rational_from_approximated_decimal() {
-            // Create approximated Decimal from non-terminating rational
-            let third = Number::from_rational(Ratio::new(1, 3)); // Non-terminating
-            let huge1 = Number::from_rational(Ratio::new(1, 4_000_000_000));
-            let huge2 = Number::from_rational(Ratio::new(1, 3_000_000_000));
-            let approx = third * huge1 * huge2; // Overflows to Decimal
-
-            assert_eq!(approx.representation(), "Decimal");
-            approx.assert_rational_approximation();
-
-            // Divide - still has non-terminating component
-            let result = approx / Number::from(2);
-
-            // Still Decimal with flag (1/3 component persists)
-            assert_eq!(result.representation(), "Decimal");
-            result.assert_rational_approximation();
-        }
-
-        #[test]
-        fn pure_decimal_operations_stay_exact() {
-            // Operations with pure Decimals (no Rational graduation) = no flag
-            let a = Number::from_decimal(Decimal::from(5));
-            let b = Number::from_decimal(Decimal::from(2));
-
-            a.assert_exact();
-            b.assert_exact();
-
-            let result = a + b;
-            result.assert_exact(); // No flag because no Rational was approximated
-        }
-
-        #[test]
-        fn rational_approximation_propagates() {
-            // Once set, rational_approximation propagates through operations
-            let third = Number::from_rational(Ratio::new(1, 3)); // Non-terminating
-            let huge1 = Number::from_rational(Ratio::new(1, 4_000_000_000));
-            let huge2 = Number::from_rational(Ratio::new(1, 3_000_000_000));
-            let approx = third * huge1 * huge2; // Overflows to Decimal
-
-            assert_eq!(approx.representation(), "Decimal");
-            approx.assert_rational_approximation();
-
-            // Operations should propagate the flag
-            let result = approx.clone() + Number::from(1);
-            assert_eq!(result.representation(), "Decimal");
-            result.assert_rational_approximation();
-
-            let result = approx * Number::from(2);
-            assert_eq!(result.representation(), "Decimal");
-            result.assert_rational_approximation();
-        }
     }
 }

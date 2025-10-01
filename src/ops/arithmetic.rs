@@ -38,7 +38,7 @@ impl Add for NumericValue {
             | (NumericValue::Decimal(b), NumericValue::Rational(a)) => {
                 let a_dec = Decimal::from(*a.numer()) / Decimal::from(*a.denom());
                 match a_dec.checked_add(b) {
-                    Some(result) => NumericValue::Decimal(result),
+                    Some(result) => NumericValue::from_decimal(result),
                     None => {
                         // Graduate to BigDecimal
                         use bigdecimal::BigDecimal;
@@ -142,7 +142,7 @@ impl Sub for NumericValue {
             (NumericValue::Rational(a), NumericValue::Decimal(b)) => {
                 let a_dec = Decimal::from(*a.numer()) / Decimal::from(*a.denom());
                 match a_dec.checked_sub(b) {
-                    Some(result) => NumericValue::Decimal(result),
+                    Some(result) => NumericValue::from_decimal(result),
                     None => {
                         // Graduate to BigDecimal
                         use bigdecimal::BigDecimal;
@@ -158,7 +158,7 @@ impl Sub for NumericValue {
             (NumericValue::Decimal(a), NumericValue::Rational(b)) => {
                 let b_dec = Decimal::from(*b.numer()) / Decimal::from(*b.denom());
                 match a.checked_sub(b_dec) {
-                    Some(result) => NumericValue::Decimal(result),
+                    Some(result) => NumericValue::from_decimal(result),
                     None => {
                         // Graduate to BigDecimal
                         use bigdecimal::BigDecimal;
@@ -277,7 +277,7 @@ impl Mul for NumericValue {
             | (NumericValue::Decimal(b), NumericValue::Rational(a)) => {
                 let a_dec = Decimal::from(*a.numer()) / Decimal::from(*a.denom());
                 match a_dec.checked_mul(b) {
-                    Some(result) => NumericValue::Decimal(result),
+                    Some(result) => NumericValue::from_decimal(result),
                     None => {
                         // Graduate to BigDecimal
                         use bigdecimal::BigDecimal;
@@ -511,7 +511,7 @@ impl Div for NumericValue {
                 } else {
                     let a_dec = Decimal::from(*a.numer()) / Decimal::from(*a.denom());
                     match a_dec.checked_div(b) {
-                        Some(result) => NumericValue::Decimal(result),
+                        Some(result) => NumericValue::from_decimal(result),
                         None => {
                             // Graduate to BigDecimal
                             use bigdecimal::BigDecimal;
@@ -537,7 +537,7 @@ impl Div for NumericValue {
                 } else {
                     let b_dec = Decimal::from(*b.numer()) / Decimal::from(*b.denom());
                     match a.checked_div(b_dec) {
-                        Some(result) => NumericValue::Decimal(result),
+                        Some(result) => NumericValue::from_decimal(result),
                         None => {
                             // Graduate to BigDecimal
                             use bigdecimal::BigDecimal;

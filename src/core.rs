@@ -1,37 +1,10 @@
 use bigdecimal::BigDecimal;
 use num_rational::Ratio;
+use num_traits::ToPrimitive;
 use rust_decimal::Decimal;
 
 /// Type alias for Rational64 (exact fractions with i64 numerator/denominator)
 pub type Rational64 = Ratio<i64>;
-
-/// Try to downgrade Decimal to Rational if it represents an exact fraction that fits in i64
-fn try_decimal_to_rational(d: Decimal) -> Option<Rational64> {
-    // Get the mantissa and scale from Decimal
-    let mantissa = d.mantissa();
-    let scale = d.scale();
-
-    // Try to convert mantissa to i64
-    let numerator: i64 = mantissa.try_into().ok()?;
-
-    // If scale is 0, it's an integer
-    if scale == 0 {
-        return Some(Ratio::from_integer(numerator));
-    }
-
-    // Otherwise, denominator is 10^scale
-    // Check if 10^scale fits in i64
-    let denominator = 10i64.checked_pow(scale)?;
-
-    Some(Ratio::new(numerator, denominator))
-}
-
-/// Try to downgrade BigDecimal to Decimal if it fits
-fn try_bigdecimal_to_decimal(_bd: &BigDecimal) -> Option<Decimal> {
-    // TODO: implement BigDecimal → Decimal conversion
-    // For now, return None to keep as BigDecimal
-    None
-}
 
 /// A smart number type that supports multiple internal representations
 /// with automatic upgrades for precision and proper handling of IEEE special values
@@ -328,5 +301,215 @@ impl Number {
 
     pub(crate) fn value(&self) -> &NumericValue {
         &self.value
+    }
+}
+
+/// Try to downgrade Decimal to Rational if it represents an exact fraction that fits in i64
+fn try_decimal_to_rational(d: Decimal) -> Option<Rational64> {
+    // Get the mantissa and scale from Decimal
+    let mantissa = d.mantissa();
+    let scale = d.scale();
+
+    #[cfg(test)]
+    println!(
+        "try_decimal_to_rational: mantissa={}, scale={}",
+        mantissa, scale
+    );
+
+    // Try to convert mantissa to i64
+    let numerator_opt: Result<i64, _> = mantissa.try_into();
+    #[cfg(test)]
+    println!("numerator_opt={:?}", numerator_opt);
+
+    // If mantissa fits in i64, try direct conversion
+    if let Ok(numerator) = numerator_opt {
+        // If scale is 0, it's an integer
+        if scale == 0 {
+            return Some(Ratio::from_integer(numerator));
+        }
+
+        // Otherwise, denominator is 10^scale
+        // Check if 10^scale fits in i64
+        if let Some(denominator) = 10i64.checked_pow(scale) {
+            let ratio = Ratio::new(numerator, denominator);
+
+            // Check if this is a "nice" rational (small denominator after reduction)
+            // If the denominator is still large, try rational approximation to find simpler form
+            if *ratio.denom() > 1000 {
+                #[cfg(test)]
+                println!("Large denominator {}, trying approximation", ratio.denom());
+
+                // Try to find a simpler rational approximation
+                if let Some(approx) = rational_approximation(d, 1_000_000) {
+                    // Check if the approximation is close enough (within Decimal precision)
+                    let ratio_dec = Decimal::from(*ratio.numer()) / Decimal::from(*ratio.denom());
+                    let approx_dec = Decimal::from(*approx.numer()) / Decimal::from(*approx.denom());
+
+                    #[cfg(test)]
+                    println!("Checking approximation: ratio_dec={}, approx_dec={}, diff={}", ratio_dec, approx_dec, (ratio_dec - approx_dec).abs());
+
+                    // Use a threshold of 1e-9 (should be close enough for most practical purposes)
+                    if (ratio_dec - approx_dec).abs() < Decimal::new(1, 9) {
+                        #[cfg(test)]
+                        println!("Using approximation {}/{} instead of {}/{}", approx.numer(), approx.denom(), ratio.numer(), ratio.denom());
+                        return Some(approx);
+                    }
+                }
+            }
+
+            return Some(ratio);
+        }
+    }
+
+    #[cfg(test)]
+    println!("Direct conversion failed, using rational_approximation");
+
+    // If direct conversion failed (mantissa or denominator overflow), use rational approximation
+    // with a reasonable denominator bound (e.g., 1 billion)
+    rational_approximation(d, 1_000_000_000)
+}
+
+/// Find the best rational approximation using continued fractions
+/// with denominator bounded by max_denom
+fn rational_approximation(d: Decimal, max_denom: i64) -> Option<Rational64> {
+    #[cfg(test)]
+    println!("rational_approximation: d={}", d);
+
+    let sign = if d < Decimal::ZERO { -1 } else { 1 };
+    let mut x = d.abs();
+
+    // Standard continued fractions algorithm
+    // p_{-1} = 1, q_{-1} = 0, p_0 = a_0, q_0 = 1
+    // p_n = a_n * p_{n-1} + p_{n-2}
+    // q_n = a_n * q_{n-1} + q_{n-2}
+
+    let mut p_prev2 = 1i128; // p_{-1}
+    let mut q_prev2 = 0i128; // q_{-1}
+
+    let a0 = x.floor().to_i128()?;
+    let mut p_prev1 = a0; // p_0
+    let mut q_prev1 = 1i128; // q_0
+
+    let (mut best_n, mut best_d) = (a0, 1i128);
+
+    #[cfg(test)]
+    println!("a0={}, best={}/{}", a0, best_n, best_d);
+
+    x = x - Decimal::from(a0);
+
+    for _iter in 0..100 {
+        // Stop if remainder is very small (we've found a good approximation)
+        if x < Decimal::new(1, 12) {
+            break;
+        }
+
+        if x.is_zero() {
+            break;
+        }
+
+        // Stop if we've already exceeded the bound
+        if q_prev1 > max_denom as i128 {
+            break;
+        }
+
+        x = Decimal::ONE / x;
+        let a_n = x.floor().to_i128()?;
+
+        #[cfg(test)]
+        println!("Iter {}: x={}, a_n={}", _iter, x, a_n);
+
+        // Compute next convergent
+        let p_n = a_n.checked_mul(p_prev1)?.checked_add(p_prev2)?;
+        let q_n = a_n.checked_mul(q_prev1)?.checked_add(q_prev2)?;
+
+        #[cfg(test)]
+        println!("  p_n={}, q_n={}, convergent={}/{}", p_n, q_n, p_n, q_n);
+
+        if q_n > max_denom as i128 {
+            // Don't update best if we've exceeded the bound
+            break;
+        }
+
+        best_n = p_n;
+        best_d = q_n;
+
+        x = x - Decimal::from(a_n);
+
+        // If remainder is very small after this convergent, we've found a good approximation
+        if x < Decimal::new(1, 12) {
+            break;
+        }
+
+        p_prev2 = p_prev1;
+        p_prev1 = p_n;
+        q_prev2 = q_prev1;
+        q_prev1 = q_n;
+    }
+
+    // Convert back to i64
+    let final_n: i64 = (sign as i128 * best_n).try_into().ok()?;
+    let final_d: i64 = best_d.try_into().ok()?;
+
+    Some(Ratio::new(final_n, final_d))
+}
+
+/// Try to downgrade BigDecimal to Decimal if it fits
+fn try_bigdecimal_to_decimal(_bd: &BigDecimal) -> Option<Decimal> {
+    // TODO: implement BigDecimal → Decimal conversion
+    // For now, return None to keep as BigDecimal
+    None
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn test_try_decimal_to_rational_integer() {
+        let d = Decimal::from(5);
+        let r = try_decimal_to_rational(d).unwrap();
+        assert_eq!(*r.numer(), 5);
+        assert_eq!(*r.denom(), 1);
+    }
+
+    #[test]
+    fn test_try_decimal_to_rational_half() {
+        let d = Decimal::from_str("0.5").unwrap();
+        let r = try_decimal_to_rational(d).unwrap();
+        // Should reduce to 1/2
+        assert_eq!(*r.numer(), 1);
+        assert_eq!(*r.denom(), 2);
+    }
+
+    #[test]
+    fn test_try_decimal_to_rational_third() {
+        // 1/3 as Decimal is 0.3333... with many decimal places
+        let third = Ratio::new(1, 3);
+        let third_dec = Decimal::from(*third.numer()) / Decimal::from(*third.denom());
+        println!("1/3 as Decimal: {}", third_dec);
+        println!("Scale: {}", third_dec.scale());
+        println!("Mantissa: {}", third_dec.mantissa());
+
+        let r = try_decimal_to_rational(third_dec).unwrap();
+        println!("Result: {}/{}", r.numer(), r.denom());
+
+        // Should now use continued fractions to find 1/3
+        assert_eq!(r, Ratio::new(1, 3));
+    }
+
+    #[test]
+    fn test_ratio_new_reduces() {
+        // Test if Ratio::new automatically reduces
+        let r = Ratio::new(2, 4);
+        assert_eq!(*r.numer(), 1);
+        assert_eq!(*r.denom(), 2);
+
+        let r2 = Ratio::new(333333333, 1000000000);
+        println!(
+            "Ratio::new(333333333, 1000000000) = {}/{}",
+            r2.numer(),
+            r2.denom()
+        );
+        // Check what this reduces to
     }
 }
