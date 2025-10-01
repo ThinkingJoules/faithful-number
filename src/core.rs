@@ -104,12 +104,6 @@ impl NumericValue {
             NumericValue::NegativeZero => "NegativeZero",
         }
     }
-
-    // Check if the number is exact (not approximated)
-    // For now, all representations are considered exact until we add transcendental operations
-    pub fn is_exact(&self) -> bool {
-        !self.is_nan()
-    }
 }
 
 /// The main public number type - a wrapper around NumericValue that tracks
@@ -233,11 +227,32 @@ impl Number {
     }
 
     pub fn is_exact(&self) -> bool {
-        !self.approximated && self.value.is_exact()
+        !self.approximated
     }
 
     pub fn is_approximated(&self) -> bool {
         self.approximated
+    }
+
+    // Conversion methods
+    pub fn to_i32(&self) -> Option<i32> {
+        self.value.to_i32()
+    }
+
+    pub fn to_u32(&self) -> Option<u32> {
+        self.value.to_u32()
+    }
+
+    pub fn to_i64(&self) -> Option<i64> {
+        self.value.to_i64()
+    }
+
+    pub fn to_f64(&self) -> f64 {
+        self.value.to_f64()
+    }
+
+    pub fn to_decimal(&self) -> Option<Decimal> {
+        self.value.to_decimal()
     }
 
     // Internal helper to create an approximated number

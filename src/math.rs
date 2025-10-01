@@ -936,27 +936,6 @@ impl Number {
         }
     }
 
-    // Conversion methods
-    pub fn to_i32(&self) -> Option<i32> {
-        self.value.to_i32()
-    }
-
-    pub fn to_u32(&self) -> Option<u32> {
-        self.value.to_u32()
-    }
-
-    pub fn to_i64(&self) -> Option<i64> {
-        self.value.to_i64()
-    }
-
-    pub fn to_f64(&self) -> f64 {
-        self.value.to_f64()
-    }
-
-    pub fn to_decimal(&self) -> Option<Decimal> {
-        self.value.to_decimal()
-    }
-
     pub fn to_primitive(&self) -> Number {
         self.clone() // Numbers are already primitive
     }
