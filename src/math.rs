@@ -231,8 +231,7 @@ impl NumericValue {
                 // Check if this is a perfect square by squaring the result
                 let x_squared = x * x;
                 if (x_squared - d).abs()
-                    < Decimal::from_str("0.0000000000000000000000000001")
-                        .unwrap_or(Decimal::ZERO)
+                    < Decimal::from_str("0.0000000000000000000000000001").unwrap_or(Decimal::ZERO)
                 {
                     // Round to nearest integer if very close
                     let rounded = x.round();
@@ -284,7 +283,10 @@ impl NumericValue {
                 #[cfg(feature = "high_precision")]
                 {
                     let precision = crate::precision::get_default_precision();
-                    if let (Some(base_f), Some(exp_f)) = (to_rug_float(&NumericValue::BigDecimal(base.clone()), precision), to_rug_float(&exp, precision)) {
+                    if let (Some(base_f), Some(exp_f)) = (
+                        to_rug_float(&NumericValue::BigDecimal(base.clone()), precision),
+                        to_rug_float(&exp, precision),
+                    ) {
                         let result = base_f.pow(exp_f);
                         return NumericValue::BigDecimal(rug_float_to_bigdecimal(&result));
                     }
@@ -304,7 +306,10 @@ impl NumericValue {
                 #[cfg(feature = "high_precision")]
                 {
                     let precision = crate::precision::get_default_precision();
-                    if let (Some(base_f), Some(exp_f)) = (to_rug_float(&base, precision), to_rug_float(&NumericValue::BigDecimal(exp.clone()), precision)) {
+                    if let (Some(base_f), Some(exp_f)) = (
+                        to_rug_float(&base, precision),
+                        to_rug_float(&NumericValue::BigDecimal(exp.clone()), precision),
+                    ) {
                         let result = base_f.pow(exp_f);
                         return NumericValue::BigDecimal(rug_float_to_bigdecimal(&result));
                     }
@@ -453,8 +458,8 @@ impl NumericValue {
                                     Some(r) => result = r,
                                     None => {
                                         // Overflow - graduate to BigDecimal and continue
-                                        use bigdecimal::BigDecimal;
                                         use crate::ops::arithmetic::decimal_to_bigdecimal;
+                                        use bigdecimal::BigDecimal;
                                         let mut result_bd = decimal_to_bigdecimal(result);
                                         let mut base_bd = decimal_to_bigdecimal(current_base);
                                         result_bd = result_bd * base_bd.clone();
@@ -476,8 +481,8 @@ impl NumericValue {
                                 Some(b) => current_base = b,
                                 None => {
                                     // Overflow on base squaring - graduate to BigDecimal
-                                    use bigdecimal::BigDecimal;
                                     use crate::ops::arithmetic::decimal_to_bigdecimal;
+                                    use bigdecimal::BigDecimal;
                                     let mut result_bd = decimal_to_bigdecimal(result);
                                     let mut base_bd = decimal_to_bigdecimal(current_base);
                                     base_bd = base_bd.clone() * base_bd.clone();
@@ -543,8 +548,11 @@ impl NumericValue {
                     #[cfg(feature = "high_precision")]
                     {
                         let precision = crate::precision::get_default_precision();
-                        if let Some(base_f) = to_rug_float(&NumericValue::Decimal(base), precision) {
-                            if let Some(exp_f) = to_rug_float(&NumericValue::Decimal(exp), precision) {
+                        if let Some(base_f) = to_rug_float(&NumericValue::Decimal(base), precision)
+                        {
+                            if let Some(exp_f) =
+                                to_rug_float(&NumericValue::Decimal(exp), precision)
+                            {
                                 let result = base_f.pow(exp_f);
                                 return NumericValue::BigDecimal(rug_float_to_bigdecimal(&result));
                             }
@@ -553,7 +561,7 @@ impl NumericValue {
 
                     // Fallback to f64
                     let ln_base = NumericValue::Decimal(base).log();
-                    let exp_arg = NumericValue::Decimal(exp) * ln_base;
+                    let (exp_arg, _) = NumericValue::Decimal(exp) * ln_base;
                     exp_arg.exp()
                 }
             }
@@ -772,7 +780,9 @@ impl NumericValue {
         match &self {
             NumericValue::NegativeZero => return NumericValue::NegativeZero,
             NumericValue::NaN => return NumericValue::NaN,
-            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => return NumericValue::NaN,
+            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => {
+                return NumericValue::NaN;
+            }
             _ => {}
         }
 
@@ -805,7 +815,9 @@ impl NumericValue {
         match &self {
             NumericValue::NegativeZero => return NumericValue::ONE,
             NumericValue::NaN => return NumericValue::NaN,
-            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => return NumericValue::NaN,
+            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => {
+                return NumericValue::NaN;
+            }
             _ => {}
         }
 
@@ -838,7 +850,9 @@ impl NumericValue {
         match &self {
             NumericValue::NegativeZero => return NumericValue::NegativeZero,
             NumericValue::NaN => return NumericValue::NaN,
-            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => return NumericValue::NaN,
+            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => {
+                return NumericValue::NaN;
+            }
             _ => {}
         }
 
@@ -871,7 +885,9 @@ impl NumericValue {
         match &self {
             NumericValue::NegativeZero => return NumericValue::NegativeZero,
             NumericValue::NaN => return NumericValue::NaN,
-            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => return NumericValue::NaN,
+            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => {
+                return NumericValue::NaN;
+            }
             _ => {}
         }
 
@@ -915,7 +931,9 @@ impl NumericValue {
         match &self {
             NumericValue::NegativeZero => return NumericValue::from(std::f64::consts::FRAC_PI_2),
             NumericValue::NaN => return NumericValue::NaN,
-            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => return NumericValue::NaN,
+            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => {
+                return NumericValue::NaN;
+            }
             _ => {}
         }
 
@@ -959,8 +977,12 @@ impl NumericValue {
         match &self {
             NumericValue::NegativeZero => return NumericValue::NegativeZero,
             NumericValue::NaN => return NumericValue::NaN,
-            NumericValue::PositiveInfinity => return NumericValue::from(std::f64::consts::FRAC_PI_2),
-            NumericValue::NegativeInfinity => return NumericValue::from(-std::f64::consts::FRAC_PI_2),
+            NumericValue::PositiveInfinity => {
+                return NumericValue::from(std::f64::consts::FRAC_PI_2);
+            }
+            NumericValue::NegativeInfinity => {
+                return NumericValue::from(-std::f64::consts::FRAC_PI_2);
+            }
             _ => {}
         }
 
@@ -999,7 +1021,9 @@ impl NumericValue {
         {
             // Try high-precision path
             let precision = crate::precision::get_default_precision();
-            if let (Some(y_f), Some(x_f)) = (to_rug_float(&self, precision), to_rug_float(&x, precision)) {
+            if let (Some(y_f), Some(x_f)) =
+                (to_rug_float(&self, precision), to_rug_float(&x, precision))
+            {
                 let result = y_f.atan2(&x_f);
                 return NumericValue::BigDecimal(rug_float_to_bigdecimal(&result));
             }
@@ -1043,16 +1067,8 @@ impl NumericValue {
                 NumericValue::from(-std::f64::consts::PI)
             }
             // Default case: use pre-computed f64 values
-            _ => NumericValue::from(y_f64.atan2(x_f64))
+            _ => NumericValue::from(y_f64.atan2(x_f64)),
         }
-    }
-
-    pub fn increment(self) -> NumericValue {
-        self + NumericValue::ONE
-    }
-
-    pub fn decrement(self) -> NumericValue {
-        self - NumericValue::ONE
     }
 
     pub fn to_i32(&self) -> Option<i32> {
@@ -1204,7 +1220,10 @@ impl Number {
 
         // Transcendental if result is Decimal or BigDecimal (approximation)
         // If result is Rational (like sqrt(4) = 2), it's exact
-        let apprx = if matches!(result_value, NumericValue::Decimal(_) | NumericValue::BigDecimal(_)) {
+        let apprx = if matches!(
+            result_value,
+            NumericValue::Decimal(_) | NumericValue::BigDecimal(_)
+        ) {
             Some(ApproximationType::Transcendental)
         } else {
             None
@@ -1238,7 +1257,10 @@ impl Number {
         let result_value = self.value.log();
         Number {
             value: result_value.clone(),
-            apprx: if matches!(result_value, NumericValue::Decimal(_) | NumericValue::BigDecimal(_)) {
+            apprx: if matches!(
+                result_value,
+                NumericValue::Decimal(_) | NumericValue::BigDecimal(_)
+            ) {
                 Some(ApproximationType::Transcendental)
             } else {
                 None
@@ -1251,7 +1273,10 @@ impl Number {
         let result_value = self.value.log10();
         Number {
             value: result_value.clone(),
-            apprx: if matches!(result_value, NumericValue::Decimal(_) | NumericValue::BigDecimal(_)) {
+            apprx: if matches!(
+                result_value,
+                NumericValue::Decimal(_) | NumericValue::BigDecimal(_)
+            ) {
                 Some(ApproximationType::Transcendental)
             } else {
                 None
@@ -1264,7 +1289,10 @@ impl Number {
         let result_value = self.value.log2();
         Number {
             value: result_value.clone(),
-            apprx: if matches!(result_value, NumericValue::Decimal(_) | NumericValue::BigDecimal(_)) {
+            apprx: if matches!(
+                result_value,
+                NumericValue::Decimal(_) | NumericValue::BigDecimal(_)
+            ) {
                 Some(ApproximationType::Transcendental)
             } else {
                 None
@@ -1277,7 +1305,10 @@ impl Number {
         let result_value = self.value.exp();
         Number {
             value: result_value.clone(),
-            apprx: if matches!(result_value, NumericValue::Decimal(_) | NumericValue::BigDecimal(_)) {
+            apprx: if matches!(
+                result_value,
+                NumericValue::Decimal(_) | NumericValue::BigDecimal(_)
+            ) {
                 Some(ApproximationType::Transcendental)
             } else {
                 None
@@ -1290,7 +1321,10 @@ impl Number {
         let result_value = self.value.sin();
         Number {
             value: result_value.clone(),
-            apprx: if matches!(result_value, NumericValue::Decimal(_) | NumericValue::BigDecimal(_)) {
+            apprx: if matches!(
+                result_value,
+                NumericValue::Decimal(_) | NumericValue::BigDecimal(_)
+            ) {
                 Some(ApproximationType::Transcendental)
             } else {
                 None
@@ -1303,7 +1337,10 @@ impl Number {
         let result_value = self.value.cos();
         Number {
             value: result_value.clone(),
-            apprx: if matches!(result_value, NumericValue::Decimal(_) | NumericValue::BigDecimal(_)) {
+            apprx: if matches!(
+                result_value,
+                NumericValue::Decimal(_) | NumericValue::BigDecimal(_)
+            ) {
                 Some(ApproximationType::Transcendental)
             } else {
                 None
@@ -1316,7 +1353,10 @@ impl Number {
         let result_value = self.value.tan();
         Number {
             value: result_value.clone(),
-            apprx: if matches!(result_value, NumericValue::Decimal(_) | NumericValue::BigDecimal(_)) {
+            apprx: if matches!(
+                result_value,
+                NumericValue::Decimal(_) | NumericValue::BigDecimal(_)
+            ) {
                 Some(ApproximationType::Transcendental)
             } else {
                 None
@@ -1329,7 +1369,10 @@ impl Number {
         let result_value = self.value.asin();
         Number {
             value: result_value.clone(),
-            apprx: if matches!(result_value, NumericValue::Decimal(_) | NumericValue::BigDecimal(_)) {
+            apprx: if matches!(
+                result_value,
+                NumericValue::Decimal(_) | NumericValue::BigDecimal(_)
+            ) {
                 Some(ApproximationType::Transcendental)
             } else {
                 None
@@ -1342,7 +1385,10 @@ impl Number {
         let result_value = self.value.acos();
         Number {
             value: result_value.clone(),
-            apprx: if matches!(result_value, NumericValue::Decimal(_) | NumericValue::BigDecimal(_)) {
+            apprx: if matches!(
+                result_value,
+                NumericValue::Decimal(_) | NumericValue::BigDecimal(_)
+            ) {
                 Some(ApproximationType::Transcendental)
             } else {
                 None
@@ -1355,7 +1401,10 @@ impl Number {
         let result_value = self.value.atan();
         Number {
             value: result_value.clone(),
-            apprx: if matches!(result_value, NumericValue::Decimal(_) | NumericValue::BigDecimal(_)) {
+            apprx: if matches!(
+                result_value,
+                NumericValue::Decimal(_) | NumericValue::BigDecimal(_)
+            ) {
                 Some(ApproximationType::Transcendental)
             } else {
                 None
@@ -1368,7 +1417,10 @@ impl Number {
         let result_value = self.value.atan2(x.value);
         Number {
             value: result_value.clone(),
-            apprx: if matches!(result_value, NumericValue::Decimal(_) | NumericValue::BigDecimal(_)) {
+            apprx: if matches!(
+                result_value,
+                NumericValue::Decimal(_) | NumericValue::BigDecimal(_)
+            ) {
                 Some(ApproximationType::Transcendental)
             } else {
                 None
@@ -1377,17 +1429,43 @@ impl Number {
     }
 
     pub fn increment(self) -> Number {
-        Number {
-            value: self.value.increment(),
-            apprx: self.apprx,
-        }
+        // Extract flags BEFORE moving self.value
+        let self_trans = self.is_transcendental();
+        let self_rat_approx = self.is_rational_approximation();
+
+        let (value, rat_overflow) = self.value + NumericValue::ONE;
+
+        // Use helper to combine flags
+        let apprx = crate::ops::arithmetic::combine_approximation_flags(
+            self_trans,
+            false, // ONE is not transcendental
+            self_rat_approx,
+            false, // ONE is not a rational approximation
+            rat_overflow,
+            &value,
+        );
+
+        Number { value, apprx }
     }
 
     pub fn decrement(self) -> Number {
-        Number {
-            value: self.value.decrement(),
-            apprx: self.apprx,
-        }
+        use crate::ops::arithmetic::combine_approximation_flags;
+
+        let self_trans = self.is_transcendental();
+        let self_rat_approx = self.is_rational_approximation();
+
+        let (value, rat_overflow) = self.value - NumericValue::ONE;
+
+        let apprx = combine_approximation_flags(
+            self_trans,
+            false, // ONE is not transcendental
+            self_rat_approx,
+            false, // ONE is not a rational approximation
+            rat_overflow,
+            &value,
+        );
+
+        Number { value, apprx }
     }
 
     pub fn to_primitive(&self) -> Number {
