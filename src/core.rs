@@ -299,6 +299,14 @@ impl Number {
         self.value.to_decimal()
     }
 
+    /// Extract the exact rational representation if stored internally as one
+    pub fn to_rational64(&self) -> Option<Rational64> {
+        match &self.value {
+            NumericValue::Rational(r) => Some(*r),
+            _ => None,
+        }
+    }
+
     pub(crate) fn value(&self) -> &NumericValue {
         &self.value
     }
