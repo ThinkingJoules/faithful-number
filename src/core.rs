@@ -16,13 +16,13 @@ pub(crate) enum NumericValue {
     Decimal(Decimal),
     /// Arbitrary precision decimal for very large numbers
     BigDecimal(BigDecimal),
-    /// JavaScript NaN (Not a Number)
+    /// IEEE NaN (Not a Number)
     NaN,
-    /// JavaScript positive infinity
+    /// IEEE positive infinity
     PositiveInfinity,
-    /// JavaScript negative infinity
+    /// IEEE negative infinity
     NegativeInfinity,
-    /// JavaScript negative zero (distinct from positive zero)
+    /// IEEE negative zero (distinct from positive zero)
     NegativeZero,
 }
 
@@ -117,7 +117,7 @@ impl NumericValue {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ApproximationType {
     Transcendental,        // From irrational operations
     RationalApproximation, // From Rational→Decimal graduation
@@ -302,9 +302,90 @@ impl Number {
     pub(crate) fn value(&self) -> &NumericValue {
         &self.value
     }
+
+    /// Try to demote to simpler representation after operation
+    /// This is called after arithmetic operations to recover exact representations when possible
+    pub(crate) fn try_demote(self) -> Self {
+        match &self.value {
+            NumericValue::BigDecimal(bd) => {
+                // CRITICAL: Check magnitude BEFORE attempting rational recovery
+                // Only try expensive continued fractions if value is small enough
+                if is_small_enough_for_rational(bd) {
+                    // Value is small - worth trying rational recovery
+                    if let Some(rat) = try_decimal_to_rational_bigdecimal(bd) {
+                        return Number {
+                            value: NumericValue::Rational(rat),
+                            apprx: None, // Flag cleared - back to exact representation
+                        };
+                    }
+                }
+                // else: value too large, skip rational attempt (would fail anyway)
+
+                // Try Decimal demotion (for magnitude overflow cases)
+                // But ONLY if we don't have rational_approximation flag
+                // (flag means we should keep trying to recover rational when possible)
+                if self.apprx != Some(ApproximationType::RationalApproximation) {
+                    if let Some(dec) = try_bigdecimal_to_decimal(bd) {
+                        return Number {
+                            value: NumericValue::from_decimal(dec),
+                            apprx: self.apprx,
+                        };
+                    }
+                }
+
+                // Keep as BigDecimal
+                self
+            }
+            NumericValue::Decimal(d) => {
+                // Try Rational recovery from Decimal
+                if let Some(rat) = try_decimal_to_rational(*d) {
+                    return Number {
+                        value: NumericValue::Rational(rat),
+                        apprx: None, // Flag cleared if it was set
+                    };
+                }
+                self
+            }
+            _ => self,
+        }
+    }
+}
+
+/// Check if a rational is a terminating decimal
+/// Returns true if denominator = 2^a × 5^b (only factors of 2 and 5)
+pub(crate) fn is_terminating_decimal(_numer: i64, denom: i64) -> bool {
+    let mut d = denom.abs();
+
+    // Remove all factors of 2
+    while d % 2 == 0 {
+        d /= 2;
+    }
+
+    // Remove all factors of 5
+    while d % 5 == 0 {
+        d /= 5;
+    }
+
+    // If only 1 remains, it was composed only of 2s and 5s
+    d == 1
+}
+
+/// Check if a BigDecimal is small enough to potentially fit in Rational64
+/// Heuristic: if |value| > i32::MAX, very unlikely to find valid i64/i64 ratio
+fn is_small_enough_for_rational(bd: &BigDecimal) -> bool {
+    // Conservative threshold: i32::MAX
+    // Rationale: To represent a value near i32::MAX as a/b where a,b fit in i64,
+    // we need room for both numerator and denominator.
+    // Values much larger than this are extremely unlikely to have valid representations.
+    bd.abs() <= BigDecimal::from(i32::MAX)
 }
 
 /// Try to downgrade Decimal to Rational if it represents an exact fraction that fits in i64
+///
+/// Uses continued fractions to find a rational approximation, then VERIFIES that the
+/// rational, when converted back to Decimal, matches the original input exactly across
+/// all 28 digits. This prevents false positives where a value close to (but not exactly)
+/// a simple fraction gets incorrectly marked as exact.
 fn try_decimal_to_rational(d: Decimal) -> Option<Rational64> {
     // Get the mantissa and scale from Decimal
     let mantissa = d.mantissa();
@@ -323,50 +404,43 @@ fn try_decimal_to_rational(d: Decimal) -> Option<Rational64> {
 
     // If mantissa fits in i64, try direct conversion
     if let Ok(numerator) = numerator_opt {
-        // If scale is 0, it's an integer
         if scale == 0 {
+            // Integers are exact by construction - no verification needed
             return Some(Ratio::from_integer(numerator));
         }
 
-        // Otherwise, denominator is 10^scale
-        // Check if 10^scale fits in i64
         if let Some(denominator) = 10i64.checked_pow(scale) {
-            let ratio = Ratio::new(numerator, denominator);
-
-            // Check if this is a "nice" rational (small denominator after reduction)
-            // If the denominator is still large, try rational approximation to find simpler form
-            if *ratio.denom() > 1000 {
-                #[cfg(test)]
-                println!("Large denominator {}, trying approximation", ratio.denom());
-
-                // Try to find a simpler rational approximation
-                if let Some(approx) = rational_approximation(d, 1_000_000) {
-                    // Check if the approximation is close enough (within Decimal precision)
-                    let ratio_dec = Decimal::from(*ratio.numer()) / Decimal::from(*ratio.denom());
-                    let approx_dec = Decimal::from(*approx.numer()) / Decimal::from(*approx.denom());
-
-                    #[cfg(test)]
-                    println!("Checking approximation: ratio_dec={}, approx_dec={}, diff={}", ratio_dec, approx_dec, (ratio_dec - approx_dec).abs());
-
-                    // Use a threshold of 1e-9 (should be close enough for most practical purposes)
-                    if (ratio_dec - approx_dec).abs() < Decimal::new(1, 9) {
-                        #[cfg(test)]
-                        println!("Using approximation {}/{} instead of {}/{}", approx.numer(), approx.denom(), ratio.numer(), ratio.denom());
-                        return Some(approx);
-                    }
-                }
-            }
-
-            return Some(ratio);
+            // 10^scale conversions are exact by construction
+            return Some(Ratio::new(numerator, denominator));
         }
     }
 
     #[cfg(test)]
     println!("Direct conversion failed, using rational_approximation");
 
-    // If direct conversion failed (mantissa or denominator overflow), use rational approximation
-    // with a reasonable denominator bound (e.g., 1 billion)
-    rational_approximation(d, 1_000_000_000)
+    // If direct conversion failed, use continued fractions
+    let candidate = rational_approximation(d, 1_000_000_000)?;
+
+    // CRITICAL: Verify the candidate matches exactly
+    verify_exact_match(d, candidate)
+}
+
+/// Verify that a rational, when converted to Decimal, exactly matches the original
+/// Returns Some(rational) only if all 28 digits match
+fn verify_exact_match(original: Decimal, candidate: Rational64) -> Option<Rational64> {
+    // Convert rational back to Decimal
+    let reconstructed = Decimal::from(*candidate.numer()) / Decimal::from(*candidate.denom());
+
+    #[cfg(test)]
+    {
+        println!("Verification:");
+        println!("  Original:      {}", original);
+        println!("  Reconstructed: {}", reconstructed);
+        println!("  Match: {}", original == reconstructed);
+    }
+
+    // Only return the rational if it matches EXACTLY
+    (reconstructed == original).then_some(candidate)
 }
 
 /// Find the best rational approximation using continued fractions
@@ -374,6 +448,8 @@ fn try_decimal_to_rational(d: Decimal) -> Option<Rational64> {
 fn rational_approximation(d: Decimal, max_denom: i64) -> Option<Rational64> {
     #[cfg(test)]
     println!("rational_approximation: d={}", d);
+
+    let max_denom_i128 = max_denom as i128;
 
     let sign = if d < Decimal::ZERO { -1 } else { 1 };
     let mut x = d.abs();
@@ -396,38 +472,21 @@ fn rational_approximation(d: Decimal, max_denom: i64) -> Option<Rational64> {
     println!("a0={}, best={}/{}", a0, best_n, best_d);
 
     x = x - Decimal::from(a0);
-
+    let threshold = Decimal::new(1, 12);
     for _iter in 0..100 {
-        // Stop if remainder is very small (we've found a good approximation)
-        if x < Decimal::new(1, 12) {
-            break;
-        }
-
-        if x.is_zero() {
-            break;
-        }
-
-        // Stop if we've already exceeded the bound
-        if q_prev1 > max_denom as i128 {
+        if x < Decimal::new(1, 12) || x.is_zero() {
             break;
         }
 
         x = Decimal::ONE / x;
         let a_n = x.floor().to_i128()?;
 
-        #[cfg(test)]
-        println!("Iter {}: x={}, a_n={}", _iter, x, a_n);
-
-        // Compute next convergent
         let p_n = a_n.checked_mul(p_prev1)?.checked_add(p_prev2)?;
         let q_n = a_n.checked_mul(q_prev1)?.checked_add(q_prev2)?;
 
-        #[cfg(test)]
-        println!("  p_n={}, q_n={}, convergent={}/{}", p_n, q_n, p_n, q_n);
-
-        if q_n > max_denom as i128 {
-            // Don't update best if we've exceeded the bound
-            break;
+        // Single bound check
+        if q_n > max_denom_i128 {
+            break; // Don't update, just break
         }
 
         best_n = p_n;
@@ -436,7 +495,7 @@ fn rational_approximation(d: Decimal, max_denom: i64) -> Option<Rational64> {
         x = x - Decimal::from(a_n);
 
         // If remainder is very small after this convergent, we've found a good approximation
-        if x < Decimal::new(1, 12) {
+        if x.is_zero() || x < threshold {
             break;
         }
 
@@ -454,13 +513,69 @@ fn rational_approximation(d: Decimal, max_denom: i64) -> Option<Rational64> {
 }
 
 /// Try to downgrade BigDecimal to Decimal if it fits
-fn try_bigdecimal_to_decimal(_bd: &BigDecimal) -> Option<Decimal> {
-    // TODO: implement BigDecimal → Decimal conversion
-    // For now, return None to keep as BigDecimal
+fn try_bigdecimal_to_decimal(bd: &BigDecimal) -> Option<Decimal> {
+    use bigdecimal::ToPrimitive;
+
+    // Extract components
+    let (bigint, scale) = bd.as_bigint_and_exponent();
+
+    // Decimal scale is i64, but max is 28
+    let scale_i32: i32 = scale.try_into().ok()?;
+    if scale_i32 < 0 || scale_i32 > 28 {
+        return None;
+    }
+
+    // Check if mantissa fits in i128 (Decimal's internal type)
+    let mantissa: i128 = bigint.to_i128()?;
+
+    // Check significant digits
+    let digits = mantissa.abs().to_string().len();
+    if digits > 28 {
+        return None;
+    }
+
+    // Construct Decimal
+    Decimal::try_from_i128_with_scale(mantissa, scale_i32 as u32).ok()
+}
+
+/// Try to recover exact rational from BigDecimal using continued fractions
+/// ASSUMES: magnitude check already performed by caller
+fn try_decimal_to_rational_bigdecimal(bd: &BigDecimal) -> Option<Rational64> {
+    // First, try direct BigDecimal→Decimal conversion
+    if let Some(d) = try_bigdecimal_to_decimal(bd) {
+        // Use existing Decimal→Rational logic
+        let candidate = rational_approximation(d, i64::MAX)?;
+
+        // CRITICAL: Verify exact match by converting back to BigDecimal
+        let reconstructed = BigDecimal::from(*candidate.numer()) / BigDecimal::from(*candidate.denom());
+
+        if reconstructed == *bd {
+            return Some(candidate);
+        }
+    }
+
+    // If direct conversion failed (too many digits), try truncating to 28 significant digits
+    // and see if we can find a rational approximation
+
+    // Round to 28 significant figures (Decimal's limit)
+    let bd_rounded = bd.with_prec(28);
+
+    if let Some(d) = try_bigdecimal_to_decimal(&bd_rounded) {
+        let candidate = rational_approximation(d, i64::MAX)?;
+
+        // CRITICAL: Verify exact match against ORIGINAL BigDecimal
+        let reconstructed = BigDecimal::from(*candidate.numer()) / BigDecimal::from(*candidate.denom());
+
+        if reconstructed == *bd {
+            return Some(candidate);
+        }
+    }
+
     None
 }
+
 #[cfg(test)]
-mod tests {
+mod test_demot {
     use super::*;
     use std::str::FromStr;
 
@@ -511,5 +626,97 @@ mod tests {
             r2.denom()
         );
         // Check what this reduces to
+    }
+    #[test]
+    fn test_exact_one_third_matches() {
+        // True 1/3 in Decimal: 0.3333333333333333333333333333 (28 threes)
+        let third_dec = Decimal::from(1) / Decimal::from(3);
+
+        let result = try_decimal_to_rational(third_dec);
+
+        // Should find 1/3 and verify it matches exactly
+        assert!(result.is_some(), "Should find 1/3");
+        let r = result.unwrap();
+        assert_eq!(*r.numer(), 1);
+        assert_eq!(*r.denom(), 3);
+    }
+
+    #[test]
+    fn test_almost_one_third_rejected() {
+        // Close to 1/3 but not exact: 0.3333333333333333333333333334
+        let almost_third = Decimal::from_str("0.3333333333333333333333333334").unwrap();
+
+        let result = try_decimal_to_rational(almost_third);
+
+        // Continued fractions finds 1/3, but verification should reject it
+        // because 1/3 → 0.333...3333 (not ending in 4)
+        assert!(
+            result.is_none(),
+            "Should reject because 28 digits don't match exactly"
+        );
+    }
+
+    #[test]
+    fn test_one_third_plus_epsilon_rejected() {
+        let third_dec = Decimal::from(1) / Decimal::from(3);
+        let epsilon = Decimal::new(1, 28); // Smallest possible increment
+        let sum = third_dec + epsilon;
+
+        println!("1/3 + epsilon: {}", sum);
+
+        let result = try_decimal_to_rational(sum);
+
+        // Even tiny epsilon should cause rejection
+        if third_dec != sum {
+            assert!(
+                result.is_none() || result.unwrap() != Ratio::new(1, 3),
+                "Should not find 1/3 for 1/3 + epsilon"
+            );
+        }
+    }
+
+    #[test]
+    fn test_ten_twenty_first_exact() {
+        // 1/3 + 1/7 = 10/21 exactly
+        let third = Decimal::from(1) / Decimal::from(3);
+        let seventh = Decimal::from(1) / Decimal::from(7);
+        let sum = third + seventh;
+
+        let result = try_decimal_to_rational(sum);
+
+        // Should find 10/21 AND verify it matches
+        if let Some(r) = result {
+            println!("Found: {}/{}", r.numer(), r.denom());
+
+            // Expected: 10/21 (after reduction)
+            let expected = Ratio::new(1, 3) + Ratio::new(1, 7);
+            assert_eq!(r, expected, "Should find exact 10/21");
+        } else {
+            // If not found, that's also acceptable (means precision loss)
+            println!("10/21 not found - acceptable if Decimal lost precision");
+        }
+    }
+
+    #[test]
+    fn test_rounding_errors_rejected() {
+        // (1/3 * 10) / 10 might have tiny rounding errors
+        let third_dec = Decimal::from(1) / Decimal::from(3);
+        let scaled = (third_dec * Decimal::from(10)) / Decimal::from(10);
+
+        let result = try_decimal_to_rational(scaled);
+
+        if third_dec == scaled {
+            // If Decimal preserved precision, should find 1/3
+            assert_eq!(result.unwrap(), Ratio::new(1, 3));
+        } else {
+            // If rounding error occurred, should reject
+            println!("Rounding error detected:");
+            println!("  Original: {}", third_dec);
+            println!("  Scaled:   {}", scaled);
+            assert!(
+                result.is_none() || result.unwrap() != Ratio::new(1, 3),
+                "Should not find 1/3 if rounding error occurred"
+            );
+        }
     }
 }

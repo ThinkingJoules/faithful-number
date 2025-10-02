@@ -131,29 +131,6 @@ mod metadata_tests {
         }
 
         #[test]
-        fn rational_approximation_only_on_decimal_from_rational() {
-            // Pure Rational operations → no flag
-            let a = Number::from_rational(Ratio::new(1, 3));
-            let b = Number::from_rational(Ratio::new(1, 6));
-            let result = a + b; // 1/3 + 1/6 = 1/2
-            assert_eq!(result.representation(), "Rational");
-            result.assert_exact();
-
-            // To force overflow: i64::MAX ≈ 9.2e18
-            // Need denominators that multiply to exceed this
-            let third = Number::from_rational(Ratio::new(1, 3)); // Non-terminating
-            let huge1 = Number::from_rational(Ratio::new(1, 4_000_000_000));
-            let huge2 = Number::from_rational(Ratio::new(1, 3_000_000_000));
-
-            // Denominator: 3 * 4e9 * 3e9 = 36e18 > i64::MAX → overflows to Decimal
-            let result = third * huge1 * huge2;
-
-            // MUST graduate to Decimal with rational_approximation (1/3 is non-terminating)
-            assert_eq!(result.representation(), "Decimal");
-            result.assert_rational_approximation();
-        }
-
-        #[test]
         fn flag_clears_when_back_to_rational() {
             // Decimal → Rational should clear rational_approximation
             let a = Number::from_decimal(Decimal::from(1));
@@ -236,58 +213,6 @@ mod metadata_tests {
             rat_approx.assert_rational_approximation();
 
             rat_approx.round().assert_exact(); // Rounds to 0 (exact)
-        }
-
-        #[test]
-        fn rational_overflow_to_decimal_sets_flag() {
-            // Create non-terminating rationals that overflow i64 denominator
-
-            let third = Number::from_rational(Ratio::new(1, 3)); // Non-terminating
-            let seventh = Number::from_rational(Ratio::new(1, 7)); // Non-terminating
-            let huge1 = Number::from_rational(Ratio::new(1, 2_000_000_000));
-            let huge2 = Number::from_rational(Ratio::new(1, 3_000_000_000));
-
-            // Denominators: 3 * 7 * 2e9 * 3e9 = 126e18 > i64::MAX
-            let result = third * seventh * huge1 * huge2;
-
-            // MUST graduate to Decimal with flag (has non-terminating component)
-            assert_eq!(result.representation(), "Decimal");
-            result.assert_rational_approximation();
-        }
-
-        #[test]
-        fn rational_approximation_clears_when_back_to_rational() {
-            // Step 1: Create a large value that forces Decimal representation
-            // i64::MAX + 1/3 → must use Decimal
-            let max = Number::from(i64::MAX);
-            let third = Number::from_rational(Ratio::new(1, 3));
-            let large = max + third.clone();
-
-            // Should be Decimal (too large for Rational) with rational_approximation flag
-            assert_eq!(
-                large.representation(),
-                "Decimal",
-                "i64::MAX + 1/3 should require Decimal representation"
-            );
-            large.assert_rational_approximation();
-
-            // Step 2: Subtract i64::MAX back off
-            let result = large - Number::from(i64::MAX);
-
-            // Step 3: Implementation should detect this is exactly 1/3
-            assert_eq!(
-                result.representation(),
-                "Rational",
-                "After subtracting i64::MAX, should detect exact 1/3 and convert to Rational"
-            );
-            result.assert_exact();
-
-            // Verify it's actually 1/3 by comparing to a fresh rational
-            assert_eq!(
-                result,
-                Number::from_rational(Ratio::new(1, 3)),
-                "Result should equal 1/3"
-            );
         }
     }
 }

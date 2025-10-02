@@ -193,7 +193,16 @@ impl NumericValue {
                     NumericValue::Decimal(x)
                 }
             }
-            NumericValue::BigDecimal(_) => unimplemented!("BigDecimal sqrt not yet implemented"),
+            NumericValue::BigDecimal(bd) => {
+                if bd.is_zero() {
+                    NumericValue::BigDecimal(bigdecimal::BigDecimal::from(0))
+                } else if bd < bigdecimal::BigDecimal::from(0) {
+                    NumericValue::NaN
+                } else {
+                    // Use BigDecimal's built-in sqrt with default precision
+                    NumericValue::BigDecimal(bd.sqrt().unwrap_or(bd))
+                }
+            }
             NumericValue::NegativeZero => NumericValue::ZERO, // sqrt(-0) = +0 in JS
             NumericValue::NaN => NumericValue::NaN,
             NumericValue::PositiveInfinity => NumericValue::PositiveInfinity,
@@ -885,9 +894,9 @@ impl Number {
         use crate::ApproximationType;
         let result_value = self.value.sqrt();
 
-        // Only transcendental if result is a Decimal (approximation)
+        // Transcendental if result is Decimal or BigDecimal (approximation)
         // If result is Rational (like sqrt(4) = 2), it's exact
-        let apprx = if matches!(result_value, NumericValue::Decimal(_)) {
+        let apprx = if matches!(result_value, NumericValue::Decimal(_) | NumericValue::BigDecimal(_)) {
             Some(ApproximationType::Transcendental)
         } else {
             None

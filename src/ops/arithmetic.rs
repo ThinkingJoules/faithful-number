@@ -5,48 +5,80 @@ use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 impl Add for NumericValue {
     type Output = NumericValue;
     fn add(self, rhs: NumericValue) -> NumericValue {
-        use num_rational::Ratio;
-
         match (self, rhs) {
-            // Rational + Rational: stays Rational, or graduates to Decimal if denominator overflows
+            // Rational + Rational: stays Rational, or graduates to Decimal/BigDecimal if denominator overflows
             (NumericValue::Rational(a), NumericValue::Rational(b)) => {
                 // Try rational addition
                 if let Some(result) = a.checked_add(&b) {
                     NumericValue::Rational(result)
                 } else {
-                    // Denominator overflow - graduate to Decimal
-                    // Convert both to Decimal and add
-                    let a_dec = Decimal::from(*a.numer()) / Decimal::from(*a.denom());
-                    let b_dec = Decimal::from(*b.numer()) / Decimal::from(*b.denom());
-                    match a_dec.checked_add(b_dec) {
-                        Some(result) => NumericValue::Decimal(result),
-                        None => {
-                            // Graduate to BigDecimal
-                            use bigdecimal::BigDecimal;
-                            let a_str = a_dec.to_string();
-                            let b_str = b_dec.to_string();
-                            let a_bd: BigDecimal = a_str.parse().unwrap();
-                            let b_bd: BigDecimal = b_str.parse().unwrap();
-                            NumericValue::BigDecimal(a_bd + b_bd)
+                    use crate::core::is_terminating_decimal;
+
+                    // Denominator overflow - check if either is non-terminating
+                    let a_non_terminating = !is_terminating_decimal(*a.numer(), *a.denom());
+                    let b_non_terminating = !is_terminating_decimal(*b.numer(), *b.denom());
+
+                    if a_non_terminating || b_non_terminating {
+                        // Non-terminating: promote directly to BigDecimal
+                        use bigdecimal::{BigDecimal, num_bigint::BigInt};
+                        let a_numer_bd = BigDecimal::from(BigInt::from(*a.numer()));
+                        let a_denom_bd = BigDecimal::from(BigInt::from(*a.denom()));
+                        let a_bd = a_numer_bd / a_denom_bd;
+                        let b_numer_bd = BigDecimal::from(BigInt::from(*b.numer()));
+                        let b_denom_bd = BigDecimal::from(BigInt::from(*b.denom()));
+                        let b_bd = b_numer_bd / b_denom_bd;
+                        NumericValue::BigDecimal(a_bd + b_bd)
+                    } else {
+                        // Terminating: try Decimal first
+                        let a_dec = Decimal::from(*a.numer()) / Decimal::from(*a.denom());
+                        let b_dec = Decimal::from(*b.numer()) / Decimal::from(*b.denom());
+                        match a_dec.checked_add(b_dec) {
+                            Some(result) => NumericValue::Decimal(result),
+                            None => {
+                                // Graduate to BigDecimal
+                                use bigdecimal::BigDecimal;
+                                let a_str = a_dec.to_string();
+                                let b_str = b_dec.to_string();
+                                let a_bd: BigDecimal = a_str.parse().unwrap();
+                                let b_bd: BigDecimal = b_str.parse().unwrap();
+                                NumericValue::BigDecimal(a_bd + b_bd)
+                            }
                         }
                     }
                 }
             }
 
-            // Rational + Decimal: graduate Rational to Decimal
+            // Rational + Decimal: graduate Rational to Decimal or BigDecimal
             (NumericValue::Rational(a), NumericValue::Decimal(b))
             | (NumericValue::Decimal(b), NumericValue::Rational(a)) => {
-                let a_dec = Decimal::from(*a.numer()) / Decimal::from(*a.denom());
-                match a_dec.checked_add(b) {
-                    Some(result) => NumericValue::from_decimal(result),
-                    None => {
-                        // Graduate to BigDecimal
-                        use bigdecimal::BigDecimal;
-                        let a_str = a_dec.to_string();
-                        let b_str = b.to_string();
-                        let a_bd: BigDecimal = a_str.parse().unwrap();
-                        let b_bd: BigDecimal = b_str.parse().unwrap();
-                        NumericValue::BigDecimal(a_bd + b_bd)
+                use crate::core::is_terminating_decimal;
+
+                // Check if rational is non-terminating
+                let a_non_terminating = !is_terminating_decimal(*a.numer(), *a.denom());
+
+                if a_non_terminating {
+                    // Non-terminating: promote directly to BigDecimal
+                    use bigdecimal::{BigDecimal, num_bigint::BigInt};
+                    let numer_bd = BigDecimal::from(BigInt::from(*a.numer()));
+                    let denom_bd = BigDecimal::from(BigInt::from(*a.denom()));
+                    let a_bd = numer_bd / denom_bd;
+                    let b_str = b.to_string();
+                    let b_bd: BigDecimal = b_str.parse().unwrap();
+                    NumericValue::BigDecimal(a_bd + b_bd)
+                } else {
+                    // Terminating: try Decimal first
+                    let a_dec = Decimal::from(*a.numer()) / Decimal::from(*a.denom());
+                    match a_dec.checked_add(b) {
+                        Some(result) => NumericValue::from_decimal(result),
+                        None => {
+                            // Graduate to BigDecimal
+                            use bigdecimal::BigDecimal;
+                            let a_str = a_dec.to_string();
+                            let b_str = b.to_string();
+                            let a_bd: BigDecimal = a_str.parse().unwrap();
+                            let b_bd: BigDecimal = b_str.parse().unwrap();
+                            NumericValue::BigDecimal(a_bd + b_bd)
+                        }
                     }
                 }
             }
@@ -1016,6 +1048,7 @@ impl Add for Number {
     type Output = Number;
     fn add(self, rhs: Number) -> Number {
         use crate::ApproximationType;
+        use crate::core::is_terminating_decimal;
 
         // Check flags and types BEFORE moving
         let self_trans = self.is_transcendental();
@@ -1024,6 +1057,18 @@ impl Add for Number {
         let rhs_rat_approx = rhs.is_rational_approximation();
         let self_rational = matches!(self.value, NumericValue::Rational(_));
         let rhs_rational = matches!(rhs.value, NumericValue::Rational(_));
+
+        // Check if either rational is non-terminating
+        let self_non_terminating = if let NumericValue::Rational(r) = &self.value {
+            !is_terminating_decimal(*r.numer(), *r.denom())
+        } else {
+            false
+        };
+        let rhs_non_terminating = if let NumericValue::Rational(r) = &rhs.value {
+            !is_terminating_decimal(*r.numer(), *r.denom())
+        } else {
+            false
+        };
 
         // Compute ONCE
         let result_value = self.value + rhs.value;
@@ -1039,10 +1084,16 @@ impl Add for Number {
                 Some(ApproximationType::RationalApproximation)
             }
         } else if (self_rational || rhs_rational)
-            && matches!(result_value, NumericValue::Decimal(_))
+            && (matches!(result_value, NumericValue::Decimal(_))
+                || matches!(result_value, NumericValue::BigDecimal(_)))
         {
-            // Rational graduated to Decimal
-            Some(ApproximationType::RationalApproximation)
+            // Rational graduated to Decimal or BigDecimal
+            // Only set flag if a NON-TERMINATING rational graduated
+            if self_non_terminating || rhs_non_terminating {
+                Some(ApproximationType::RationalApproximation)
+            } else {
+                None // Terminating rational -> Decimal is exact
+            }
         } else {
             None
         };
@@ -1058,6 +1109,7 @@ impl Sub for Number {
     type Output = Number;
     fn sub(self, rhs: Number) -> Number {
         use crate::ApproximationType;
+        use crate::core::is_terminating_decimal;
 
         // Check flags and types BEFORE moving
         let self_trans = self.is_transcendental();
@@ -1066,6 +1118,18 @@ impl Sub for Number {
         let rhs_rat_approx = rhs.is_rational_approximation();
         let self_rational = matches!(self.value, NumericValue::Rational(_));
         let rhs_rational = matches!(rhs.value, NumericValue::Rational(_));
+
+        // Check if either rational is non-terminating
+        let self_non_terminating = if let NumericValue::Rational(r) = &self.value {
+            !is_terminating_decimal(*r.numer(), *r.denom())
+        } else {
+            false
+        };
+        let rhs_non_terminating = if let NumericValue::Rational(r) = &rhs.value {
+            !is_terminating_decimal(*r.numer(), *r.denom())
+        } else {
+            false
+        };
 
         // Compute ONCE
         let result_value = self.value - rhs.value;
@@ -1081,7 +1145,12 @@ impl Sub for Number {
         } else if (self_rational || rhs_rational)
             && matches!(result_value, NumericValue::Decimal(_))
         {
-            Some(ApproximationType::RationalApproximation)
+            // Only set flag if a NON-TERMINATING rational graduated
+            if self_non_terminating || rhs_non_terminating {
+                Some(ApproximationType::RationalApproximation)
+            } else {
+                None // Terminating rational -> Decimal is exact
+            }
         } else {
             None
         };
@@ -1090,6 +1159,7 @@ impl Sub for Number {
             value: result_value,
             apprx,
         }
+        .try_demote()
     }
 }
 
@@ -1097,6 +1167,7 @@ impl Mul for Number {
     type Output = Number;
     fn mul(self, rhs: Number) -> Number {
         use crate::ApproximationType;
+        use crate::core::is_terminating_decimal;
 
         // Check flags and types BEFORE moving
         let self_trans = self.is_transcendental();
@@ -1105,6 +1176,18 @@ impl Mul for Number {
         let rhs_rat_approx = rhs.is_rational_approximation();
         let self_rational = matches!(self.value, NumericValue::Rational(_));
         let rhs_rational = matches!(rhs.value, NumericValue::Rational(_));
+
+        // Check if either rational is non-terminating
+        let self_non_terminating = if let NumericValue::Rational(r) = &self.value {
+            !is_terminating_decimal(*r.numer(), *r.denom())
+        } else {
+            false
+        };
+        let rhs_non_terminating = if let NumericValue::Rational(r) = &rhs.value {
+            !is_terminating_decimal(*r.numer(), *r.denom())
+        } else {
+            false
+        };
 
         // Compute ONCE
         let result_value = self.value * rhs.value;
@@ -1120,7 +1203,12 @@ impl Mul for Number {
         } else if (self_rational || rhs_rational)
             && matches!(result_value, NumericValue::Decimal(_))
         {
-            Some(ApproximationType::RationalApproximation)
+            // Only set flag if a NON-TERMINATING rational graduated
+            if self_non_terminating || rhs_non_terminating {
+                Some(ApproximationType::RationalApproximation)
+            } else {
+                None // Terminating rational -> Decimal is exact
+            }
         } else {
             None
         };
@@ -1136,6 +1224,7 @@ impl Div for Number {
     type Output = Number;
     fn div(self, rhs: Number) -> Number {
         use crate::ApproximationType;
+        use crate::core::is_terminating_decimal;
 
         // Check flags and types BEFORE moving
         let self_trans = self.is_transcendental();
@@ -1144,6 +1233,18 @@ impl Div for Number {
         let rhs_rat_approx = rhs.is_rational_approximation();
         let self_rational = matches!(self.value, NumericValue::Rational(_));
         let rhs_rational = matches!(rhs.value, NumericValue::Rational(_));
+
+        // Check if either rational is non-terminating
+        let self_non_terminating = if let NumericValue::Rational(r) = &self.value {
+            !is_terminating_decimal(*r.numer(), *r.denom())
+        } else {
+            false
+        };
+        let rhs_non_terminating = if let NumericValue::Rational(r) = &rhs.value {
+            !is_terminating_decimal(*r.numer(), *r.denom())
+        } else {
+            false
+        };
 
         // Compute ONCE
         let result_value = self.value / rhs.value;
@@ -1160,7 +1261,12 @@ impl Div for Number {
         } else if (self_rational || rhs_rational)
             && matches!(result_value, NumericValue::Decimal(_))
         {
-            Some(ApproximationType::RationalApproximation)
+            // Only set flag if a NON-TERMINATING rational graduated
+            if self_non_terminating || rhs_non_terminating {
+                Some(ApproximationType::RationalApproximation)
+            } else {
+                None // Terminating rational -> Decimal is exact
+            }
         } else {
             None
         };
