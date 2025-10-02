@@ -446,12 +446,54 @@ impl NumericValue {
                         let mut current_base = base;
                         let mut current_exp = exp_i64 as u64;
 
-                        // Fast exponentiation by squaring
+                        // Fast exponentiation by squaring with overflow checking
                         while current_exp > 0 {
                             if current_exp % 2 == 1 {
-                                result *= current_base;
+                                match result.checked_mul(current_base) {
+                                    Some(r) => result = r,
+                                    None => {
+                                        // Overflow - graduate to BigDecimal and continue
+                                        use bigdecimal::BigDecimal;
+                                        use crate::ops::arithmetic::decimal_to_bigdecimal;
+                                        let mut result_bd = decimal_to_bigdecimal(result);
+                                        let mut base_bd = decimal_to_bigdecimal(current_base);
+                                        result_bd = result_bd * base_bd.clone();
+                                        current_exp /= 2;
+
+                                        // Continue with BigDecimal arithmetic
+                                        while current_exp > 0 {
+                                            if current_exp % 2 == 1 {
+                                                result_bd = result_bd * base_bd.clone();
+                                            }
+                                            base_bd = base_bd.clone() * base_bd.clone();
+                                            current_exp /= 2;
+                                        }
+                                        return NumericValue::BigDecimal(result_bd);
+                                    }
+                                }
                             }
-                            current_base *= current_base;
+                            match current_base.checked_mul(current_base) {
+                                Some(b) => current_base = b,
+                                None => {
+                                    // Overflow on base squaring - graduate to BigDecimal
+                                    use bigdecimal::BigDecimal;
+                                    use crate::ops::arithmetic::decimal_to_bigdecimal;
+                                    let mut result_bd = decimal_to_bigdecimal(result);
+                                    let mut base_bd = decimal_to_bigdecimal(current_base);
+                                    base_bd = base_bd.clone() * base_bd.clone();
+                                    current_exp /= 2;
+
+                                    // Continue with BigDecimal arithmetic
+                                    while current_exp > 0 {
+                                        if current_exp % 2 == 1 {
+                                            result_bd = result_bd * base_bd.clone();
+                                        }
+                                        base_bd = base_bd.clone() * base_bd.clone();
+                                        current_exp /= 2;
+                                    }
+                                    return NumericValue::BigDecimal(result_bd);
+                                }
+                            }
                             current_exp /= 2;
                         }
 

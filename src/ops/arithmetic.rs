@@ -2,6 +2,16 @@ use crate::{Number, NumericValue, forward_ref_binop};
 use num_traits::{CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, Signed, Zero};
 use rust_decimal::Decimal;
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
+use bigdecimal::BigDecimal;
+
+/// Fast conversion from rust_decimal::Decimal to bigdecimal::BigDecimal
+/// Avoids slow string parsing by using mantissa and scale directly
+#[inline]
+pub(crate) fn decimal_to_bigdecimal(d: Decimal) -> BigDecimal {
+    let mantissa = d.mantissa();
+    let scale = d.scale() as i64;
+    BigDecimal::new(mantissa.into(), scale)
+}
 impl Add for NumericValue {
     type Output = NumericValue;
     fn add(self, rhs: NumericValue) -> NumericValue {
@@ -14,9 +24,9 @@ impl Add for NumericValue {
                 } else {
                     use crate::core::is_terminating_decimal;
 
-                    // Denominator overflow - check if either is non-terminating
-                    let a_non_terminating = !is_terminating_decimal(*a.numer(), *a.denom());
-                    let b_non_terminating = !is_terminating_decimal(*b.numer(), *b.denom());
+                    // Quick path: if denominator is 1 (integer), it's terminating
+                    let a_non_terminating = *a.denom() != 1 && !is_terminating_decimal(*a.numer(), *a.denom());
+                    let b_non_terminating = *b.denom() != 1 && !is_terminating_decimal(*b.numer(), *b.denom());
 
                     if a_non_terminating || b_non_terminating {
                         // Non-terminating: promote directly to BigDecimal
@@ -35,12 +45,8 @@ impl Add for NumericValue {
                         match a_dec.checked_add(b_dec) {
                             Some(result) => NumericValue::Decimal(result),
                             None => {
-                                // Graduate to BigDecimal
-                                use bigdecimal::BigDecimal;
-                                let a_str = a_dec.to_string();
-                                let b_str = b_dec.to_string();
-                                let a_bd: BigDecimal = a_str.parse().unwrap();
-                                let b_bd: BigDecimal = b_str.parse().unwrap();
+                                let a_bd = decimal_to_bigdecimal(a_dec);
+                                let b_bd = decimal_to_bigdecimal(b_dec);
                                 NumericValue::BigDecimal(a_bd + b_bd)
                             }
                         }
@@ -53,8 +59,8 @@ impl Add for NumericValue {
             | (NumericValue::Decimal(b), NumericValue::Rational(a)) => {
                 use crate::core::is_terminating_decimal;
 
-                // Check if rational is non-terminating
-                let a_non_terminating = !is_terminating_decimal(*a.numer(), *a.denom());
+                // Quick path: if denominator is 1 (integer), it's terminating
+                let a_non_terminating = *a.denom() != 1 && !is_terminating_decimal(*a.numer(), *a.denom());
 
                 if a_non_terminating {
                     // Non-terminating: promote directly to BigDecimal
@@ -62,8 +68,7 @@ impl Add for NumericValue {
                     let numer_bd = BigDecimal::from(BigInt::from(*a.numer()));
                     let denom_bd = BigDecimal::from(BigInt::from(*a.denom()));
                     let a_bd = numer_bd / denom_bd;
-                    let b_str = b.to_string();
-                    let b_bd: BigDecimal = b_str.parse().unwrap();
+                    let b_bd = decimal_to_bigdecimal(b);
                     NumericValue::BigDecimal(a_bd + b_bd)
                 } else {
                     // Terminating: try Decimal first
@@ -72,11 +77,8 @@ impl Add for NumericValue {
                         Some(result) => NumericValue::from_decimal(result),
                         None => {
                             // Graduate to BigDecimal
-                            use bigdecimal::BigDecimal;
-                            let a_str = a_dec.to_string();
-                            let b_str = b.to_string();
-                            let a_bd: BigDecimal = a_str.parse().unwrap();
-                            let b_bd: BigDecimal = b_str.parse().unwrap();
+                            let a_bd = decimal_to_bigdecimal(a_dec);
+                            let b_bd = decimal_to_bigdecimal(b);
                             NumericValue::BigDecimal(a_bd + b_bd)
                         }
                     }
@@ -97,11 +99,8 @@ impl Add for NumericValue {
             (NumericValue::Decimal(a), NumericValue::Decimal(b)) => match a.checked_add(b) {
                 Some(result) => NumericValue::Decimal(result),
                 None => {
-                    use bigdecimal::BigDecimal;
-                    let a_str = a.to_string();
-                    let b_str = b.to_string();
-                    let a_bd: BigDecimal = a_str.parse().unwrap();
-                    let b_bd: BigDecimal = b_str.parse().unwrap();
+                    let a_bd = decimal_to_bigdecimal(a);
+                    let b_bd = decimal_to_bigdecimal(b);
                     NumericValue::BigDecimal(a_bd + b_bd)
                 }
             },
@@ -123,9 +122,7 @@ impl Add for NumericValue {
             }
             (NumericValue::BigDecimal(a), NumericValue::Decimal(b))
             | (NumericValue::Decimal(b), NumericValue::BigDecimal(a)) => {
-                use bigdecimal::BigDecimal;
-                let b_str = b.to_string();
-                let b_bd: BigDecimal = b_str.parse().unwrap();
+                let b_bd = decimal_to_bigdecimal(b);
                 NumericValue::BigDecimal(a + b_bd)
             }
 
@@ -159,11 +156,8 @@ impl Sub for NumericValue {
                         Some(result) => NumericValue::Decimal(result),
                         None => {
                             // Graduate to BigDecimal
-                            use bigdecimal::BigDecimal;
-                            let a_str = a_dec.to_string();
-                            let b_str = b_dec.to_string();
-                            let a_bd: BigDecimal = a_str.parse().unwrap();
-                            let b_bd: BigDecimal = b_str.parse().unwrap();
+                            let a_bd = decimal_to_bigdecimal(a_dec);
+                            let b_bd = decimal_to_bigdecimal(b_dec);
                             NumericValue::BigDecimal(a_bd - b_bd)
                         }
                     }
@@ -177,11 +171,8 @@ impl Sub for NumericValue {
                     Some(result) => NumericValue::from_decimal(result),
                     None => {
                         // Graduate to BigDecimal
-                        use bigdecimal::BigDecimal;
-                        let a_str = a_dec.to_string();
-                        let b_str = b.to_string();
-                        let a_bd: BigDecimal = a_str.parse().unwrap();
-                        let b_bd: BigDecimal = b_str.parse().unwrap();
+                        let a_bd = decimal_to_bigdecimal(a_dec);
+                        let b_bd = decimal_to_bigdecimal(b);
                         NumericValue::BigDecimal(a_bd - b_bd)
                     }
                 }
@@ -193,11 +184,8 @@ impl Sub for NumericValue {
                     Some(result) => NumericValue::from_decimal(result),
                     None => {
                         // Graduate to BigDecimal
-                        use bigdecimal::BigDecimal;
-                        let a_str = a.to_string();
-                        let b_str = b_dec.to_string();
-                        let a_bd: BigDecimal = a_str.parse().unwrap();
-                        let b_bd: BigDecimal = b_str.parse().unwrap();
+                        let a_bd = decimal_to_bigdecimal(a);
+                        let b_bd = decimal_to_bigdecimal(b_dec);
                         NumericValue::BigDecimal(a_bd - b_bd)
                     }
                 }
@@ -226,11 +214,8 @@ impl Sub for NumericValue {
                     Some(result) => NumericValue::Decimal(result),
                     None => {
                         // Overflow - graduate to BigDecimal
-                        use bigdecimal::BigDecimal;
-                        let a_str = a.to_string();
-                        let b_str = b.to_string();
-                        let a_bd: BigDecimal = a_str.parse().unwrap();
-                        let b_bd: BigDecimal = b_str.parse().unwrap();
+                        let a_bd = decimal_to_bigdecimal(a);
+                        let b_bd = decimal_to_bigdecimal(b);
                         NumericValue::BigDecimal(a_bd - b_bd)
                     }
                 }
@@ -254,15 +239,11 @@ impl Sub for NumericValue {
                 NumericValue::BigDecimal(a - b)
             }
             (NumericValue::BigDecimal(a), NumericValue::Decimal(b)) => {
-                use bigdecimal::BigDecimal;
-                let b_str = b.to_string();
-                let b_bd: BigDecimal = b_str.parse().unwrap();
+                let b_bd = decimal_to_bigdecimal(b);
                 NumericValue::BigDecimal(a - b_bd)
             }
             (NumericValue::Decimal(a), NumericValue::BigDecimal(b)) => {
-                use bigdecimal::BigDecimal;
-                let a_str = a.to_string();
-                let a_bd: BigDecimal = a_str.parse().unwrap();
+                let a_bd = decimal_to_bigdecimal(a);
                 NumericValue::BigDecimal(a_bd - b)
             }
 
@@ -281,24 +262,35 @@ impl Mul for NumericValue {
     type Output = NumericValue;
     fn mul(self, rhs: NumericValue) -> NumericValue {
         match (self, rhs) {
-            // Rational * Rational: stays Rational, or graduates to Decimal if denominator overflows
+            // Rational * Rational: stays Rational, or graduates to Decimal/BigDecimal if overflow
             (NumericValue::Rational(a), NumericValue::Rational(b)) => {
                 if let Some(result) = a.checked_mul(&b) {
                     NumericValue::Rational(result)
                 } else {
-                    // Overflow - graduate to Decimal
-                    let a_dec = Decimal::from(*a.numer()) / Decimal::from(*a.denom());
-                    let b_dec = Decimal::from(*b.numer()) / Decimal::from(*b.denom());
-                    match a_dec.checked_mul(b_dec) {
-                        Some(result) => NumericValue::Decimal(result),
-                        None => {
-                            // Graduate to BigDecimal
-                            use bigdecimal::BigDecimal;
-                            let a_str = a_dec.to_string();
-                            let b_str = b_dec.to_string();
-                            let a_bd: BigDecimal = a_str.parse().unwrap();
-                            let b_bd: BigDecimal = b_str.parse().unwrap();
-                            NumericValue::BigDecimal(a_bd * b_bd)
+                    use crate::core::is_terminating_decimal;
+
+                    // Check if either is non-terminating (quick check with denom == 1 first)
+                    let a_non_terminating = *a.denom() != 1 && !is_terminating_decimal(*a.numer(), *a.denom());
+                    let b_non_terminating = *b.denom() != 1 && !is_terminating_decimal(*b.numer(), *b.denom());
+
+                    if a_non_terminating || b_non_terminating {
+                        // Non-terminating: use BigDecimal to preserve precision for recovery
+                        use bigdecimal::{BigDecimal, num_bigint::BigInt};
+                        let a_bd = BigDecimal::from(BigInt::from(*a.numer())) / BigDecimal::from(BigInt::from(*a.denom()));
+                        let b_bd = BigDecimal::from(BigInt::from(*b.numer())) / BigDecimal::from(BigInt::from(*b.denom()));
+                        NumericValue::BigDecimal(a_bd * b_bd)
+                    } else {
+                        // Terminating: try Decimal first (faster), then BigDecimal if needed
+                        let a_dec = Decimal::from(*a.numer()) / Decimal::from(*a.denom());
+                        let b_dec = Decimal::from(*b.numer()) / Decimal::from(*b.denom());
+                        match a_dec.checked_mul(b_dec) {
+                            Some(result) => NumericValue::Decimal(result),
+                            None => {
+                                // Graduate to BigDecimal - use fast conversion
+                                let a_bd = decimal_to_bigdecimal(a_dec);
+                                let b_bd = decimal_to_bigdecimal(b_dec);
+                                NumericValue::BigDecimal(a_bd * b_bd)
+                            }
                         }
                     }
                 }
@@ -312,11 +304,8 @@ impl Mul for NumericValue {
                     Some(result) => NumericValue::from_decimal(result),
                     None => {
                         // Graduate to BigDecimal
-                        use bigdecimal::BigDecimal;
-                        let a_str = a_dec.to_string();
-                        let b_str = b.to_string();
-                        let a_bd: BigDecimal = a_str.parse().unwrap();
-                        let b_bd: BigDecimal = b_str.parse().unwrap();
+                        let a_bd = decimal_to_bigdecimal(a_dec);
+                        let b_bd = decimal_to_bigdecimal(b);
                         NumericValue::BigDecimal(a_bd * b_bd)
                     }
                 }
@@ -340,10 +329,8 @@ impl Mul for NumericValue {
                     None => {
                         // Overflow - graduate to BigDecimal
                         use bigdecimal::BigDecimal;
-                        let a_str = a.to_string();
-                        let b_str = b.to_string();
-                        let a_bd: BigDecimal = a_str.parse().unwrap();
-                        let b_bd: BigDecimal = b_str.parse().unwrap();
+                        let a_bd = decimal_to_bigdecimal(a);
+                        let b_bd = decimal_to_bigdecimal(b);
                         NumericValue::BigDecimal(a_bd * b_bd)
                     }
                 }
@@ -356,8 +343,7 @@ impl Mul for NumericValue {
             (NumericValue::BigDecimal(a), NumericValue::Decimal(b))
             | (NumericValue::Decimal(b), NumericValue::BigDecimal(a)) => {
                 use bigdecimal::BigDecimal;
-                let b_str = b.to_string();
-                let b_bd: BigDecimal = b_str.parse().unwrap();
+                let b_bd = decimal_to_bigdecimal(b);
                 NumericValue::BigDecimal(a * b_bd)
             }
 
@@ -512,19 +498,30 @@ impl Div for NumericValue {
                 } else if let Some(result) = a.checked_div(&b) {
                     NumericValue::Rational(result)
                 } else {
-                    // Overflow - graduate to Decimal
-                    let a_dec = Decimal::from(*a.numer()) / Decimal::from(*a.denom());
-                    let b_dec = Decimal::from(*b.numer()) / Decimal::from(*b.denom());
-                    match a_dec.checked_div(b_dec) {
-                        Some(result) => NumericValue::Decimal(result),
-                        None => {
-                            // Graduate to BigDecimal
-                            use bigdecimal::BigDecimal;
-                            let a_str = a_dec.to_string();
-                            let b_str = b_dec.to_string();
-                            let a_bd: BigDecimal = a_str.parse().unwrap();
-                            let b_bd: BigDecimal = b_str.parse().unwrap();
-                            NumericValue::BigDecimal(a_bd / b_bd)
+                    use crate::core::is_terminating_decimal;
+
+                    // Check if either is non-terminating (quick check with denom == 1 first)
+                    let a_non_terminating = *a.denom() != 1 && !is_terminating_decimal(*a.numer(), *a.denom());
+                    let b_non_terminating = *b.denom() != 1 && !is_terminating_decimal(*b.numer(), *b.denom());
+
+                    if a_non_terminating || b_non_terminating {
+                        // Non-terminating: use BigDecimal to preserve precision for recovery
+                        use bigdecimal::{BigDecimal, num_bigint::BigInt};
+                        let a_bd = BigDecimal::from(BigInt::from(*a.numer())) / BigDecimal::from(BigInt::from(*a.denom()));
+                        let b_bd = BigDecimal::from(BigInt::from(*b.numer())) / BigDecimal::from(BigInt::from(*b.denom()));
+                        NumericValue::BigDecimal(a_bd / b_bd)
+                    } else {
+                        // Terminating: try Decimal first (faster), then BigDecimal if needed
+                        let a_dec = Decimal::from(*a.numer()) / Decimal::from(*a.denom());
+                        let b_dec = Decimal::from(*b.numer()) / Decimal::from(*b.denom());
+                        match a_dec.checked_div(b_dec) {
+                            Some(result) => NumericValue::Decimal(result),
+                            None => {
+                                // Graduate to BigDecimal - use fast conversion
+                                let a_bd = decimal_to_bigdecimal(a_dec);
+                                let b_bd = decimal_to_bigdecimal(b_dec);
+                                NumericValue::BigDecimal(a_bd / b_bd)
+                            }
                         }
                     }
                 }
@@ -546,11 +543,8 @@ impl Div for NumericValue {
                         Some(result) => NumericValue::from_decimal(result),
                         None => {
                             // Graduate to BigDecimal
-                            use bigdecimal::BigDecimal;
-                            let a_str = a_dec.to_string();
-                            let b_str = b.to_string();
-                            let a_bd: BigDecimal = a_str.parse().unwrap();
-                            let b_bd: BigDecimal = b_str.parse().unwrap();
+                            let a_bd = decimal_to_bigdecimal(a_dec);
+                            let b_bd = decimal_to_bigdecimal(b);
                             NumericValue::BigDecimal(a_bd / b_bd)
                         }
                     }
@@ -573,10 +567,8 @@ impl Div for NumericValue {
                         None => {
                             // Graduate to BigDecimal
                             use bigdecimal::BigDecimal;
-                            let a_str = a.to_string();
-                            let b_str = b_dec.to_string();
-                            let a_bd: BigDecimal = a_str.parse().unwrap();
-                            let b_bd: BigDecimal = b_str.parse().unwrap();
+                            let a_bd = decimal_to_bigdecimal(a);
+                            let b_bd = decimal_to_bigdecimal(b_dec);
                             NumericValue::BigDecimal(a_bd / b_bd)
                         }
                     }
@@ -705,22 +697,16 @@ impl Div for NumericValue {
                                     NumericValue::Rational(rational)
                                 } else {
                                     // Mantissa doesn't fit in i64, use BigDecimal
-                                    use bigdecimal::BigDecimal;
-                                    let a_str = a.to_string();
-                                    let b_str = b.to_string();
-                                    let a_bd: BigDecimal = a_str.parse().unwrap();
-                                    let b_bd: BigDecimal = b_str.parse().unwrap();
+                                    let a_bd = decimal_to_bigdecimal(a);
+                                    let b_bd = decimal_to_bigdecimal(b);
                                     NumericValue::BigDecimal(a_bd / b_bd)
                                 }
                             }
                         }
                         None => {
                             // Overflow or underflow - graduate to BigDecimal
-                            use bigdecimal::BigDecimal;
-                            let a_str = a.to_string();
-                            let b_str = b.to_string();
-                            let a_bd: BigDecimal = a_str.parse().unwrap();
-                            let b_bd: BigDecimal = b_str.parse().unwrap();
+                            let a_bd = decimal_to_bigdecimal(a);
+                            let b_bd = decimal_to_bigdecimal(b);
                             NumericValue::BigDecimal(a_bd / b_bd)
                         }
                     }
@@ -751,9 +737,7 @@ impl Div for NumericValue {
                         NumericValue::NegativeInfinity
                     }
                 } else {
-                    use bigdecimal::BigDecimal;
-                    let b_str = b.to_string();
-                    let b_bd: BigDecimal = b_str.parse().unwrap();
+                    let b_bd = decimal_to_bigdecimal(b);
                     NumericValue::BigDecimal(a / b_bd)
                 }
             }
@@ -767,9 +751,7 @@ impl Div for NumericValue {
                         NumericValue::NegativeInfinity
                     }
                 } else {
-                    use bigdecimal::BigDecimal;
-                    let a_str = a.to_string();
-                    let a_bd: BigDecimal = a_str.parse().unwrap();
+                    let a_bd = decimal_to_bigdecimal(a);
                     NumericValue::BigDecimal(a_bd / b)
                 }
             }
@@ -946,9 +928,7 @@ impl Rem for NumericValue {
                 if b.is_zero() {
                     NumericValue::NaN
                 } else {
-                    use bigdecimal::BigDecimal;
-                    let b_str = b.to_string();
-                    let b_bd: BigDecimal = b_str.parse().unwrap();
+                    let b_bd = decimal_to_bigdecimal(b);
                     NumericValue::BigDecimal(a % b_bd)
                 }
             }
@@ -956,9 +936,7 @@ impl Rem for NumericValue {
                 if b.is_zero() {
                     NumericValue::NaN
                 } else {
-                    use bigdecimal::BigDecimal;
-                    let a_str = a.to_string();
-                    let a_bd: BigDecimal = a_str.parse().unwrap();
+                    let a_bd = decimal_to_bigdecimal(a);
                     NumericValue::BigDecimal(a_bd % b)
                 }
             }
@@ -1119,21 +1097,22 @@ impl Sub for Number {
         let self_rational = matches!(self.value, NumericValue::Rational(_));
         let rhs_rational = matches!(rhs.value, NumericValue::Rational(_));
 
-        // Check if either rational is non-terminating
-        let self_non_terminating = if let NumericValue::Rational(r) = &self.value {
-            !is_terminating_decimal(*r.numer(), *r.denom())
+        // Extract Rational values before move (for later terminating checks if needed)
+        let self_rat = if let NumericValue::Rational(r) = &self.value {
+            Some(*r)
         } else {
-            false
+            None
         };
-        let rhs_non_terminating = if let NumericValue::Rational(r) = &rhs.value {
-            !is_terminating_decimal(*r.numer(), *r.denom())
+        let rhs_rat = if let NumericValue::Rational(r) = &rhs.value {
+            Some(*r)
         } else {
-            false
+            None
         };
 
-        // Compute ONCE
+        // Compute ONCE (fast path: most operations stay in same representation)
         let result_value = self.value - rhs.value;
 
+        // Determine approximation flag
         let apprx = if self_trans || rhs_trans {
             Some(ApproximationType::Transcendental)
         } else if self_rat_approx || rhs_rat_approx {
@@ -1143,23 +1122,48 @@ impl Sub for Number {
                 Some(ApproximationType::RationalApproximation)
             }
         } else if (self_rational || rhs_rational)
-            && matches!(result_value, NumericValue::Decimal(_))
+            && (matches!(result_value, NumericValue::Decimal(_))
+                || matches!(result_value, NumericValue::BigDecimal(_)))
         {
-            // Only set flag if a NON-TERMINATING rational graduated
-            if self_non_terminating || rhs_non_terminating {
+            // Result graduated from Rational - NOW check if non-terminating (rare case)
+            let self_nt = if let Some(r) = self_rat {
+                *r.denom() != 1 && !is_terminating_decimal(*r.numer(), *r.denom())
+            } else {
+                false
+            };
+            let rhs_nt = if let Some(r) = rhs_rat {
+                *r.denom() != 1 && !is_terminating_decimal(*r.numer(), *r.denom())
+            } else {
+                false
+            };
+
+            if self_nt || rhs_nt {
                 Some(ApproximationType::RationalApproximation)
             } else {
-                None // Terminating rational -> Decimal is exact
+                None // Terminating rational -> Decimal/BigDecimal is exact
             }
         } else {
             None
         };
 
-        Number {
+        let result = Number {
             value: result_value,
             apprx,
+        };
+
+        // Skip demotion for obviously-large BigDecimals (saves ~20-30ns)
+        match &result.value {
+            NumericValue::BigDecimal(bd) => {
+                use bigdecimal::BigDecimal;
+                const LARGE_THRESHOLD: i64 = i64::MAX / 1000;
+                if bd.abs() > BigDecimal::from(LARGE_THRESHOLD) {
+                    return result; // Too large to demote, skip expensive checks
+                }
+            }
+            _ => {}
         }
-        .try_demote()
+
+        result.try_demote()
     }
 }
 
@@ -1177,21 +1181,22 @@ impl Mul for Number {
         let self_rational = matches!(self.value, NumericValue::Rational(_));
         let rhs_rational = matches!(rhs.value, NumericValue::Rational(_));
 
-        // Check if either rational is non-terminating
-        let self_non_terminating = if let NumericValue::Rational(r) = &self.value {
-            !is_terminating_decimal(*r.numer(), *r.denom())
+        // Extract Rational values before move (for later terminating checks if needed)
+        let self_rat = if let NumericValue::Rational(r) = &self.value {
+            Some(*r)
         } else {
-            false
+            None
         };
-        let rhs_non_terminating = if let NumericValue::Rational(r) = &rhs.value {
-            !is_terminating_decimal(*r.numer(), *r.denom())
+        let rhs_rat = if let NumericValue::Rational(r) = &rhs.value {
+            Some(*r)
         } else {
-            false
+            None
         };
 
-        // Compute ONCE
+        // Compute ONCE (fast path: most operations stay in same representation)
         let result_value = self.value * rhs.value;
 
+        // Determine approximation flag
         let apprx = if self_trans || rhs_trans {
             Some(ApproximationType::Transcendental)
         } else if self_rat_approx || rhs_rat_approx {
@@ -1201,22 +1206,48 @@ impl Mul for Number {
                 Some(ApproximationType::RationalApproximation)
             }
         } else if (self_rational || rhs_rational)
-            && matches!(result_value, NumericValue::Decimal(_))
+            && (matches!(result_value, NumericValue::Decimal(_))
+                || matches!(result_value, NumericValue::BigDecimal(_)))
         {
-            // Only set flag if a NON-TERMINATING rational graduated
-            if self_non_terminating || rhs_non_terminating {
+            // Result graduated from Rational - NOW check if non-terminating (rare case)
+            let self_nt = if let Some(r) = self_rat {
+                *r.denom() != 1 && !is_terminating_decimal(*r.numer(), *r.denom())
+            } else {
+                false
+            };
+            let rhs_nt = if let Some(r) = rhs_rat {
+                *r.denom() != 1 && !is_terminating_decimal(*r.numer(), *r.denom())
+            } else {
+                false
+            };
+
+            if self_nt || rhs_nt {
                 Some(ApproximationType::RationalApproximation)
             } else {
-                None // Terminating rational -> Decimal is exact
+                None // Terminating rational -> Decimal/BigDecimal is exact
             }
         } else {
             None
         };
 
-        Number {
+        let result = Number {
             value: result_value,
             apprx,
+        };
+
+        // Skip demotion for obviously-large BigDecimals (saves ~20-30ns)
+        match &result.value {
+            NumericValue::BigDecimal(bd) => {
+                use bigdecimal::BigDecimal;
+                const LARGE_THRESHOLD: i64 = i64::MAX / 1000;
+                if bd.abs() > BigDecimal::from(LARGE_THRESHOLD) {
+                    return result; // Too large to demote, skip expensive checks
+                }
+            }
+            _ => {}
         }
+
+        result.try_demote()
     }
 }
 
@@ -1234,21 +1265,22 @@ impl Div for Number {
         let self_rational = matches!(self.value, NumericValue::Rational(_));
         let rhs_rational = matches!(rhs.value, NumericValue::Rational(_));
 
-        // Check if either rational is non-terminating
-        let self_non_terminating = if let NumericValue::Rational(r) = &self.value {
-            !is_terminating_decimal(*r.numer(), *r.denom())
+        // Extract Rational values before move (for later terminating checks if needed)
+        let self_rat = if let NumericValue::Rational(r) = &self.value {
+            Some(*r)
         } else {
-            false
+            None
         };
-        let rhs_non_terminating = if let NumericValue::Rational(r) = &rhs.value {
-            !is_terminating_decimal(*r.numer(), *r.denom())
+        let rhs_rat = if let NumericValue::Rational(r) = &rhs.value {
+            Some(*r)
         } else {
-            false
+            None
         };
 
-        // Compute ONCE
+        // Compute ONCE (fast path: most operations stay in same representation)
         let result_value = self.value / rhs.value;
 
+        // Determine approximation flag
         let apprx = if self_trans || rhs_trans {
             Some(ApproximationType::Transcendental)
         } else if self_rat_approx || rhs_rat_approx {
@@ -1259,22 +1291,48 @@ impl Div for Number {
                 Some(ApproximationType::RationalApproximation)
             }
         } else if (self_rational || rhs_rational)
-            && matches!(result_value, NumericValue::Decimal(_))
+            && (matches!(result_value, NumericValue::Decimal(_))
+                || matches!(result_value, NumericValue::BigDecimal(_)))
         {
-            // Only set flag if a NON-TERMINATING rational graduated
-            if self_non_terminating || rhs_non_terminating {
+            // Result graduated from Rational - NOW check if non-terminating (rare case)
+            let self_nt = if let Some(r) = self_rat {
+                *r.denom() != 1 && !is_terminating_decimal(*r.numer(), *r.denom())
+            } else {
+                false
+            };
+            let rhs_nt = if let Some(r) = rhs_rat {
+                *r.denom() != 1 && !is_terminating_decimal(*r.numer(), *r.denom())
+            } else {
+                false
+            };
+
+            if self_nt || rhs_nt {
                 Some(ApproximationType::RationalApproximation)
             } else {
-                None // Terminating rational -> Decimal is exact
+                None // Terminating rational -> Decimal/BigDecimal is exact
             }
         } else {
             None
         };
 
-        Number {
+        let result = Number {
             value: result_value,
             apprx,
+        };
+
+        // Skip demotion for obviously-large BigDecimals (saves ~20-30ns)
+        match &result.value {
+            NumericValue::BigDecimal(bd) => {
+                use bigdecimal::BigDecimal;
+                const LARGE_THRESHOLD: i64 = i64::MAX / 1000;
+                if bd.abs() > BigDecimal::from(LARGE_THRESHOLD) {
+                    return result; // Too large to demote, skip expensive checks
+                }
+            }
+            _ => {}
         }
+
+        result.try_demote()
     }
 }
 

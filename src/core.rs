@@ -394,10 +394,23 @@ impl Number {
 pub(crate) fn is_terminating_decimal(_numer: i64, denom: i64) -> bool {
     let mut d = denom.abs();
 
-    // Remove all factors of 2
-    while d % 2 == 0 {
-        d /= 2;
+    // Fast path: common denominators
+    if d == 1 || d == 2 || d == 4 || d == 5 || d == 8 || d == 10 || d == 100 || d == 1000 {
+        return true;
     }
+
+    // Fast path: if d is odd and not a power of 5, can't be terminating unless d == 1
+    if d & 1 == 1 {
+        // d is odd, so no factors of 2. Check if it's a power of 5.
+        while d % 5 == 0 {
+            d /= 5;
+        }
+        return d == 1;
+    }
+
+    // Remove all factors of 2 using bit shift (much faster than loop)
+    // trailing_zeros() counts how many factors of 2 there are
+    d >>= d.trailing_zeros();
 
     // Remove all factors of 5
     while d % 5 == 0 {
@@ -409,13 +422,15 @@ pub(crate) fn is_terminating_decimal(_numer: i64, denom: i64) -> bool {
 }
 
 /// Check if a BigDecimal is small enough to potentially fit in Rational64
-/// Heuristic: if |value| > i32::MAX, very unlikely to find valid i64/i64 ratio
+/// Heuristic: if |value| is very large, unlikely to find valid i64/i64 ratio
 fn is_small_enough_for_rational(bd: &BigDecimal) -> bool {
-    // Conservative threshold: i32::MAX
-    // Rationale: To represent a value near i32::MAX as a/b where a,b fit in i64,
-    // we need room for both numerator and denominator.
-    // Values much larger than this are extremely unlikely to have valid representations.
-    bd.abs() <= BigDecimal::from(i32::MAX)
+    // Threshold: i64::MAX / 1000
+    // Rationale: Rational64 uses i64 numerator and denominator. To be safe,
+    // we allow values up to roughly i64::MAX / 1000, which leaves room for
+    // both numerator and denominator while accounting for worst-case rounding.
+    // This is ~9×10^15, much more permissive than i32::MAX (~2×10^9).
+    const THRESHOLD: i64 = i64::MAX / 1000;
+    bd.abs() <= BigDecimal::from(THRESHOLD)
 }
 
 /// Try to downgrade Decimal to Rational if it represents an exact fraction that fits in i64
@@ -425,6 +440,14 @@ fn is_small_enough_for_rational(bd: &BigDecimal) -> bool {
 /// all 28 digits. This prevents false positives where a value close to (but not exactly)
 /// a simple fraction gets incorrectly marked as exact.
 fn try_decimal_to_rational(d: Decimal) -> Option<Rational64> {
+    // Early exit for very large or very small numbers
+    // Skip expensive continued fractions algorithm if value can't possibly fit in i64/i64
+    // Use same threshold as is_small_enough_for_rational
+    const THRESHOLD: i64 = i64::MAX / 1000;
+    if d.abs() > Decimal::from(THRESHOLD) {
+        return None;
+    }
+
     // Get the mantissa and scale from Decimal
     let mantissa = d.mantissa();
     let scale = d.scale();

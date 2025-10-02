@@ -189,8 +189,8 @@ mod metadata_tests {
             let huge2 = Number::from_rational(Ratio::new(1, 3_000_000_000));
             let rat_approx = third * huge1 * huge2; // Overflows to Decimal
 
-            // MUST have rational_approximation
-            assert_eq!(rat_approx.representation(), "Decimal");
+            // MUST have rational_approximation and be BigDecimal to preserve precision
+            assert_eq!(rat_approx.representation(), "BigDecimal");
             rat_approx.assert_rational_approximation();
 
             // Transcendental operation should trump
@@ -213,12 +213,66 @@ mod metadata_tests {
             let third = Number::from_rational(Ratio::new(1, 3)); // Non-terminating
             let huge1 = Number::from_rational(Ratio::new(1, 4_000_000_000));
             let huge2 = Number::from_rational(Ratio::new(1, 3_000_000_000));
-            let rat_approx = third * huge1 * huge2; // Overflows to Decimal
+            let rat_approx = third * huge1 * huge2; // Overflows to BigDecimal (non-terminating)
 
-            assert_eq!(rat_approx.representation(), "Decimal");
+            assert_eq!(rat_approx.representation(), "BigDecimal");
             rat_approx.assert_rational_approximation();
 
             rat_approx.round().assert_exact(); // Rounds to 0 (exact)
+        }
+
+        #[test]
+        fn rational_approximation_must_preserve_precision_for_recovery() {
+            // This test demonstrates that rational approximations MUST use BigDecimal
+            // to preserve enough precision to recover the original rational after inverse operations
+
+            let third = Number::from_rational(Ratio::new(1, 3)); // Non-terminating
+            let huge1 = Number::from_rational(Ratio::new(1, 4_000_000_000));
+            let huge2 = Number::from_rational(Ratio::new(1, 3_000_000_000));
+
+            // Multiply - causes overflow, creates rational approximation
+            let intermediate = third.clone() * huge1.clone() * huge2.clone();
+
+            println!("Intermediate representation: {}", intermediate.representation());
+            println!("Is rational approximation? {}", intermediate.is_rational_approximation());
+
+            // KEY TEST: Can we recover the original 1/3?
+            let recovered = intermediate / huge1 / huge2;
+
+            println!("Recovered representation: {}", recovered.representation());
+            println!("Recovered value: {:?}", recovered.to_rational64());
+
+            // If intermediate was stored as Decimal (28 digits), we LOSE precision
+            // If intermediate was stored as BigDecimal, we CAN recover exactly
+
+            // EXPECTED: recovered should be Rational(1, 3) - the original value
+            assert_eq!(recovered.representation(), "Rational",
+                "Should recover to Rational representation");
+            assert_eq!(recovered.to_rational64(), Some(Ratio::new(1, 3)),
+                "Should recover exact 1/3, not a truncated approximation");
+        }
+
+        #[test]
+        fn multiplication_should_demote_when_result_is_simple() {
+            // This test demonstrates that try_demote() is necessary after multiplication
+            // When multiplying BigDecimal values that result in simple rationals, we should demote
+
+            // Create a huge BigDecimal (10^50, way beyond Decimal's range)
+            let huge = Number::from(10.0).pow(Number::from(50));
+            assert_eq!(huge.representation(), "BigDecimal", "10^50 should be BigDecimal");
+
+            // Create a tiny fraction (1/10^50) - also BigDecimal
+            let tiny = Number::from(1.0) / Number::from(10.0).pow(Number::from(50));
+            assert_eq!(tiny.representation(), "BigDecimal", "10^-50 should be BigDecimal");
+
+            // Multiply: 10^50 * 10^-50 = 1
+            let result = huge * tiny;
+
+            // Should demote back to Rational(1, 1)
+            assert_eq!(result.representation(), "Rational",
+                "BigDecimal * BigDecimal = 1 should demote to Rational");
+            assert_eq!(result.to_rational64(), Some(Ratio::new(1, 1)),
+                "Should be exact 1/1");
         }
     }
 }
