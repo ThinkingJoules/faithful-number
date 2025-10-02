@@ -357,6 +357,36 @@ impl Number {
             _ => self,
         }
     }
+
+    /// Set the default precision for high-precision transcendental operations.
+    ///
+    /// This is a convenience method that calls `crate::precision::set_default_precision`.
+    /// When the `high_precision` feature is enabled, this controls the precision (in bits)
+    /// used for transcendental operations like sin, cos, log, exp, etc.
+    ///
+    /// # Arguments
+    /// * `bits` - Precision in bits. Recommended: 100-200 for most uses, 300+ for high precision.
+    ///
+    /// # Example
+    /// ```
+    /// use faithful_number::Number;
+    ///
+    /// #[cfg(feature = "high_precision")]
+    /// {
+    ///     Number::set_default_precision(200);
+    ///     let result = Number::from(2).sqrt();
+    /// }
+    /// ```
+    pub fn set_default_precision(bits: u32) {
+        crate::precision::set_default_precision(bits)
+    }
+
+    /// Get the current default precision in bits.
+    ///
+    /// Returns 0 when the `high_precision` feature is disabled (uses f64).
+    pub fn get_default_precision() -> u32 {
+        crate::precision::get_default_precision()
+    }
 }
 
 /// Check if a rational is a terminating decimal

@@ -5,6 +5,46 @@ use rust_decimal::Decimal;
 use num_traits::{FromPrimitive, Signed, ToPrimitive, Zero};
 use std::str::FromStr;
 
+#[cfg(feature = "high_precision")]
+use bigdecimal::BigDecimal;
+#[cfg(feature = "high_precision")]
+use rug::Float;
+#[cfg(feature = "high_precision")]
+use rug::ops::Pow;
+
+/// Helper function to convert NumericValue to rug::Float for high-precision operations
+#[cfg(feature = "high_precision")]
+fn to_rug_float(value: &NumericValue, precision: u32) -> Option<Float> {
+    match value {
+        NumericValue::Rational(r) => {
+            let numer = *r.numer();
+            let denom = *r.denom();
+            Some(Float::with_val(precision, numer) / Float::with_val(precision, denom))
+        }
+        NumericValue::Decimal(d) => {
+            // Convert Decimal to string, then to Float
+            let s = d.to_string();
+            Float::parse(&s).ok().map(|f| Float::with_val(precision, f))
+        }
+        NumericValue::BigDecimal(bd) => {
+            // Convert BigDecimal to string, then to Float
+            let s = bd.to_string();
+            Float::parse(&s).ok().map(|f| Float::with_val(precision, f))
+        }
+        NumericValue::NegativeZero => Some(Float::with_val(precision, 0)),
+        _ => None,
+    }
+}
+
+/// Helper function to convert rug::Float to BigDecimal
+#[cfg(feature = "high_precision")]
+fn rug_float_to_bigdecimal(f: &Float) -> BigDecimal {
+    use std::str::FromStr;
+    // Convert to string representation and parse as BigDecimal
+    let s = f.to_string();
+    BigDecimal::from_str(&s).unwrap_or_else(|_| BigDecimal::from(0))
+}
+
 impl NumericValue {
     // Mathematical functions following JS semantics
     pub fn abs(self) -> NumericValue {
@@ -154,44 +194,54 @@ impl NumericValue {
             }
             NumericValue::Decimal(d) => {
                 if d < Decimal::ZERO {
-                    NumericValue::NaN // sqrt of negative number is NaN in JS
+                    return NumericValue::NaN; // sqrt of negative number is NaN in JS
                 } else if d.is_zero() {
-                    NumericValue::Decimal(Decimal::ZERO) // sqrt(0) = 0
-                } else {
-                    // Babylonian method (Newton-Raphson) for square root
-                    // Formula: x_{n+1} = (x_n + S/x_n) / 2
-                    let mut x = d / Decimal::from(2); // Initial guess: S/2
-                    let two = Decimal::from(2);
+                    return NumericValue::Decimal(Decimal::ZERO); // sqrt(0) = 0
+                }
 
-                    // Iterate until convergence (or max iterations)
-                    for _ in 0..50 {
-                        // Max 50 iterations should be plenty
-                        let next = (x + d / x) / two;
-                        // Check for convergence (difference smaller than epsilon)
-                        if (next - x).abs()
-                            < Decimal::from_str("0.0000000000000000000000000001")
-                                .unwrap_or(Decimal::ZERO)
-                        {
-                            break;
-                        }
-                        x = next;
+                #[cfg(feature = "high_precision")]
+                {
+                    // Use high-precision rug::Float for sqrt
+                    let precision = crate::precision::get_default_precision();
+                    if let Some(f) = to_rug_float(&NumericValue::Decimal(d), precision) {
+                        let result = f.sqrt();
+                        return NumericValue::BigDecimal(rug_float_to_bigdecimal(&result));
                     }
+                }
 
-                    // Check if this is a perfect square by squaring the result
-                    let x_squared = x * x;
-                    if (x_squared - d).abs()
+                // Fallback: Babylonian method (Newton-Raphson) for square root
+                // Formula: x_{n+1} = (x_n + S/x_n) / 2
+                let mut x = d / Decimal::from(2); // Initial guess: S/2
+                let two = Decimal::from(2);
+
+                // Iterate until convergence (or max iterations)
+                for _ in 0..50 {
+                    // Max 50 iterations should be plenty
+                    let next = (x + d / x) / two;
+                    // Check for convergence (difference smaller than epsilon)
+                    if (next - x).abs()
                         < Decimal::from_str("0.0000000000000000000000000001")
                             .unwrap_or(Decimal::ZERO)
                     {
-                        // Round to nearest integer if very close
-                        let rounded = x.round();
-                        if (rounded * rounded - d).abs() < (x * x - d).abs() {
-                            x = rounded;
-                        }
+                        break;
                     }
-
-                    NumericValue::Decimal(x)
+                    x = next;
                 }
+
+                // Check if this is a perfect square by squaring the result
+                let x_squared = x * x;
+                if (x_squared - d).abs()
+                    < Decimal::from_str("0.0000000000000000000000000001")
+                        .unwrap_or(Decimal::ZERO)
+                {
+                    // Round to nearest integer if very close
+                    let rounded = x.round();
+                    if (rounded * rounded - d).abs() < (x * x - d).abs() {
+                        x = rounded;
+                    }
+                }
+
+                NumericValue::Decimal(x)
             }
             NumericValue::BigDecimal(bd) => {
                 if bd.is_zero() {
@@ -212,16 +262,57 @@ impl NumericValue {
 
     pub fn pow(self, exponent: NumericValue) -> NumericValue {
         match (self, exponent) {
-            // Rational and BigDecimal - not fully implemented yet
-            (NumericValue::Rational(_), _) => unimplemented!("Rational pow not yet implemented"),
-            (NumericValue::BigDecimal(_), _) => {
-                unimplemented!("BigDecimal pow not yet implemented")
+            // Rational base: handle sqrt specially, otherwise convert to Decimal
+            (NumericValue::Rational(base), exp) => {
+                // Check if exponent is 0.5 (sqrt case)
+                if let NumericValue::Rational(exp_r) = &exp {
+                    if *exp_r.numer() == 1 && *exp_r.denom() == 2 {
+                        // Use Rational sqrt which preserves exactness for perfect squares
+                        return NumericValue::Rational(base).sqrt();
+                    }
+                } else if let NumericValue::Decimal(exp_d) = &exp {
+                    if *exp_d == Decimal::from_str("0.5").unwrap_or(Decimal::ZERO) {
+                        return NumericValue::Rational(base).sqrt();
+                    }
+                }
+                // General case: convert to Decimal
+                let base_decimal = Decimal::from(*base.numer()) / Decimal::from(*base.denom());
+                NumericValue::Decimal(base_decimal).pow(exp)
             }
-            (_, NumericValue::Rational(_)) => {
-                unimplemented!("pow with Rational exponent not yet implemented")
+            // BigDecimal base: use high-precision or convert to f64
+            (NumericValue::BigDecimal(base), exp) => {
+                #[cfg(feature = "high_precision")]
+                {
+                    let precision = crate::precision::get_default_precision();
+                    if let (Some(base_f), Some(exp_f)) = (to_rug_float(&NumericValue::BigDecimal(base.clone()), precision), to_rug_float(&exp, precision)) {
+                        let result = base_f.pow(exp_f);
+                        return NumericValue::BigDecimal(rug_float_to_bigdecimal(&result));
+                    }
+                }
+                // Fallback to f64
+                let base_f64 = base.to_f64().unwrap_or(0.0);
+                let exp_f64 = exp.to_f64();
+                NumericValue::from(base_f64.powf(exp_f64))
             }
-            (_, NumericValue::BigDecimal(_)) => {
-                unimplemented!("pow with BigDecimal exponent not yet implemented")
+            // Rational exponent: convert to Decimal and use Decimal pow
+            (base, NumericValue::Rational(exp)) => {
+                let exp_decimal = Decimal::from(*exp.numer()) / Decimal::from(*exp.denom());
+                base.pow(NumericValue::Decimal(exp_decimal))
+            }
+            // BigDecimal exponent: use high-precision or convert to f64
+            (base, NumericValue::BigDecimal(exp)) => {
+                #[cfg(feature = "high_precision")]
+                {
+                    let precision = crate::precision::get_default_precision();
+                    if let (Some(base_f), Some(exp_f)) = (to_rug_float(&base, precision), to_rug_float(&NumericValue::BigDecimal(exp.clone()), precision)) {
+                        let result = base_f.pow(exp_f);
+                        return NumericValue::BigDecimal(rug_float_to_bigdecimal(&result));
+                    }
+                }
+                // Fallback to f64
+                let base_f64 = base.to_f64();
+                let exp_f64 = exp.to_f64().unwrap_or(0.0);
+                NumericValue::from(base_f64.powf(exp_f64))
             }
 
             // Handle NaN cases first
@@ -399,12 +490,26 @@ impl NumericValue {
                     }
                 } else {
                     // Handle special case of 0.5 exponent (square root)
-                    if exp == Decimal::from_str("0.5").unwrap_or(Decimal::ZERO) {
+                    // Check both 0.5 and 1/2 representations
+                    let half = Decimal::from_str("0.5").unwrap_or(Decimal::ZERO);
+                    if exp == half {
                         return NumericValue::Decimal(base).sqrt();
                     }
 
                     // Fractional exponent - use a^b = e^(b * ln(a))
-                    // TODO: For high precision, implement ln and exp with Decimal directly
+                    // When high_precision is enabled, log and exp will use rug::Float automatically
+                    #[cfg(feature = "high_precision")]
+                    {
+                        let precision = crate::precision::get_default_precision();
+                        if let Some(base_f) = to_rug_float(&NumericValue::Decimal(base), precision) {
+                            if let Some(exp_f) = to_rug_float(&NumericValue::Decimal(exp), precision) {
+                                let result = base_f.pow(exp_f);
+                                return NumericValue::BigDecimal(rug_float_to_bigdecimal(&result));
+                            }
+                        }
+                    }
+
+                    // Fallback to f64
                     let ln_base = NumericValue::Decimal(base).log();
                     let exp_arg = NumericValue::Decimal(exp) * ln_base;
                     exp_arg.exp()
@@ -419,10 +524,32 @@ impl NumericValue {
     }
 
     pub fn log(self) -> NumericValue {
-        // TODO: For high precision, implement using Newton's method or Taylor series:
-        // ln(x) can be computed using the series: ln(1+u) = u - u²/2 + u³/3 - u⁴/4 + ...
-        // Or use Newton's method: find y such that e^y = x
-        // For now, using f64 conversion for compatibility
+        // Special value handling first
+        match &self {
+            NumericValue::NegativeZero => return NumericValue::NegativeInfinity,
+            NumericValue::NaN => return NumericValue::NaN,
+            NumericValue::PositiveInfinity => return NumericValue::PositiveInfinity,
+            NumericValue::NegativeInfinity => return NumericValue::NaN,
+            _ => {}
+        }
+
+        #[cfg(feature = "high_precision")]
+        {
+            // Use high-precision rug::Float
+            let precision = crate::precision::get_default_precision();
+            if let Some(f) = to_rug_float(&self, precision) {
+                if f.is_sign_negative() {
+                    return NumericValue::NaN;
+                }
+                if f.is_zero() {
+                    return NumericValue::NegativeInfinity;
+                }
+                let result = f.ln();
+                return NumericValue::BigDecimal(rug_float_to_bigdecimal(&result));
+            }
+        }
+
+        // Fallback to f64 (when high_precision is disabled or conversion failed)
         match self {
             NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
                 let f = self.to_f64();
@@ -441,23 +568,44 @@ impl NumericValue {
                     if d.is_zero() {
                         NumericValue::NegativeInfinity
                     } else {
-                        NumericValue::NaN // log of negative number
+                        NumericValue::NaN
                     }
                 } else {
                     let f = d.to_f64().unwrap_or(0.0);
                     NumericValue::from(f.ln())
                 }
             }
-            NumericValue::NegativeZero => NumericValue::NegativeInfinity, // log(-0) = -∞
-            NumericValue::NaN => NumericValue::NaN,
-            NumericValue::PositiveInfinity => NumericValue::PositiveInfinity,
-            NumericValue::NegativeInfinity => NumericValue::NaN,
+            _ => unreachable!(),
         }
     }
 
     pub fn log10(self) -> NumericValue {
-        // TODO: For high precision, implement as log(x) / log(10) using Decimal
-        // For now, using f64 conversion for compatibility
+        // Special value handling first
+        match &self {
+            NumericValue::NegativeZero => return NumericValue::NegativeInfinity,
+            NumericValue::NaN => return NumericValue::NaN,
+            NumericValue::PositiveInfinity => return NumericValue::PositiveInfinity,
+            NumericValue::NegativeInfinity => return NumericValue::NaN,
+            _ => {}
+        }
+
+        #[cfg(feature = "high_precision")]
+        {
+            // Use high-precision rug::Float
+            let precision = crate::precision::get_default_precision();
+            if let Some(f) = to_rug_float(&self, precision) {
+                if f.is_sign_negative() {
+                    return NumericValue::NaN;
+                }
+                if f.is_zero() {
+                    return NumericValue::NegativeInfinity;
+                }
+                let result = f.log10();
+                return NumericValue::BigDecimal(rug_float_to_bigdecimal(&result));
+            }
+        }
+
+        // Fallback to f64
         match self {
             NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
                 let f = self.to_f64();
@@ -476,23 +624,44 @@ impl NumericValue {
                     if d.is_zero() {
                         NumericValue::NegativeInfinity
                     } else {
-                        NumericValue::NaN // log of negative number
+                        NumericValue::NaN
                     }
                 } else {
                     let f = d.to_f64().unwrap_or(0.0);
                     NumericValue::from(f.log10())
                 }
             }
-            NumericValue::NegativeZero => NumericValue::NegativeInfinity, // log10(-0) = -∞
-            NumericValue::NaN => NumericValue::NaN,
-            NumericValue::PositiveInfinity => NumericValue::PositiveInfinity,
-            NumericValue::NegativeInfinity => NumericValue::NaN,
+            _ => unreachable!(),
         }
     }
 
     pub fn log2(self) -> NumericValue {
-        // TODO: For high precision, implement as log(x) / log(2) using Decimal
-        // For now, using f64 conversion for compatibility
+        // Special value handling first
+        match &self {
+            NumericValue::NegativeZero => return NumericValue::NegativeInfinity,
+            NumericValue::NaN => return NumericValue::NaN,
+            NumericValue::PositiveInfinity => return NumericValue::PositiveInfinity,
+            NumericValue::NegativeInfinity => return NumericValue::NaN,
+            _ => {}
+        }
+
+        #[cfg(feature = "high_precision")]
+        {
+            // Use high-precision rug::Float
+            let precision = crate::precision::get_default_precision();
+            if let Some(f) = to_rug_float(&self, precision) {
+                if f.is_sign_negative() {
+                    return NumericValue::NaN;
+                }
+                if f.is_zero() {
+                    return NumericValue::NegativeInfinity;
+                }
+                let result = f.log2();
+                return NumericValue::BigDecimal(rug_float_to_bigdecimal(&result));
+            }
+        }
+
+        // Fallback to f64
         match self {
             NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
                 let f = self.to_f64();
@@ -511,24 +680,38 @@ impl NumericValue {
                     if d.is_zero() {
                         NumericValue::NegativeInfinity
                     } else {
-                        NumericValue::NaN // log of negative number
+                        NumericValue::NaN
                     }
                 } else {
                     let f = d.to_f64().unwrap_or(0.0);
                     NumericValue::from(f.log2())
                 }
             }
-            NumericValue::NegativeZero => NumericValue::NegativeInfinity, // log2(-0) = -∞
-            NumericValue::NaN => NumericValue::NaN,
-            NumericValue::PositiveInfinity => NumericValue::PositiveInfinity,
-            NumericValue::NegativeInfinity => NumericValue::NaN,
+            _ => unreachable!(),
         }
     }
 
     pub fn exp(self) -> NumericValue {
-        // TODO: For high precision, implement using Taylor series with Decimal:
-        // e^x = 1 + x + x²/2! + x³/3! + x⁴/4! + ...
-        // For now, using f64 conversion for compatibility
+        // Special value handling first
+        match &self {
+            NumericValue::NegativeZero => return NumericValue::ONE,
+            NumericValue::NaN => return NumericValue::NaN,
+            NumericValue::PositiveInfinity => return NumericValue::PositiveInfinity,
+            NumericValue::NegativeInfinity => return NumericValue::ZERO,
+            _ => {}
+        }
+
+        #[cfg(feature = "high_precision")]
+        {
+            // Use high-precision rug::Float
+            let precision = crate::precision::get_default_precision();
+            if let Some(f) = to_rug_float(&self, precision) {
+                let result = f.exp();
+                return NumericValue::BigDecimal(rug_float_to_bigdecimal(&result));
+            }
+        }
+
+        // Fallback to f64
         match self {
             NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
                 let f = self.to_f64();
@@ -536,21 +719,32 @@ impl NumericValue {
             }
             NumericValue::Decimal(d) => {
                 let f = d.to_f64().unwrap_or(0.0);
-                let result = f.exp();
-                NumericValue::from(result)
+                NumericValue::from(f.exp())
             }
-            NumericValue::NegativeZero => NumericValue::ONE, // exp(-0) = 1
-            NumericValue::NaN => NumericValue::NaN,
-            NumericValue::PositiveInfinity => NumericValue::PositiveInfinity,
-            NumericValue::NegativeInfinity => NumericValue::ZERO,
+            _ => unreachable!(),
         }
     }
 
     pub fn sin(self) -> NumericValue {
-        // TODO: For high precision, implement using Taylor series with Decimal:
-        // sin(x) = x - x³/3! + x⁵/5! - x⁷/7! + ...
-        // This would require implementing factorial and power series with Decimal precision
-        // For now, using f64 conversion for compatibility
+        // Special value handling first
+        match &self {
+            NumericValue::NegativeZero => return NumericValue::NegativeZero,
+            NumericValue::NaN => return NumericValue::NaN,
+            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => return NumericValue::NaN,
+            _ => {}
+        }
+
+        #[cfg(feature = "high_precision")]
+        {
+            // Use high-precision rug::Float
+            let precision = crate::precision::get_default_precision();
+            if let Some(f) = to_rug_float(&self, precision) {
+                let result = f.sin();
+                return NumericValue::BigDecimal(rug_float_to_bigdecimal(&result));
+            }
+        }
+
+        // Fallback to f64
         match self {
             NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
                 let f = self.to_f64();
@@ -560,17 +754,30 @@ impl NumericValue {
                 let f = d.to_f64().unwrap_or(0.0);
                 NumericValue::from(f.sin())
             }
-            NumericValue::NegativeZero => NumericValue::NegativeZero, // sin(-0) = -0
-            NumericValue::NaN => NumericValue::NaN,
-            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => NumericValue::NaN,
+            _ => unreachable!(),
         }
     }
 
     pub fn cos(self) -> NumericValue {
-        // TODO: For high precision, implement using Taylor series with Decimal:
-        // cos(x) = 1 - x²/2! + x⁴/4! - x⁶/6! + ...
-        // This would require implementing factorial and power series with Decimal precision
-        // For now, using f64 conversion for compatibility
+        // Special value handling first
+        match &self {
+            NumericValue::NegativeZero => return NumericValue::ONE,
+            NumericValue::NaN => return NumericValue::NaN,
+            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => return NumericValue::NaN,
+            _ => {}
+        }
+
+        #[cfg(feature = "high_precision")]
+        {
+            // Use high-precision rug::Float
+            let precision = crate::precision::get_default_precision();
+            if let Some(f) = to_rug_float(&self, precision) {
+                let result = f.cos();
+                return NumericValue::BigDecimal(rug_float_to_bigdecimal(&result));
+            }
+        }
+
+        // Fallback to f64
         match self {
             NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
                 let f = self.to_f64();
@@ -580,16 +787,30 @@ impl NumericValue {
                 let f = d.to_f64().unwrap_or(0.0);
                 NumericValue::from(f.cos())
             }
-            NumericValue::NegativeZero => NumericValue::ONE, // cos(-0) = 1
-            NumericValue::NaN => NumericValue::NaN,
-            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => NumericValue::NaN,
+            _ => unreachable!(),
         }
     }
 
     pub fn tan(self) -> NumericValue {
-        // TODO: For high precision, implement as sin(x)/cos(x) using Decimal Taylor series
-        // Need to handle asymptotes where cos(x) = 0
-        // For now, using f64 conversion for compatibility
+        // Special value handling first
+        match &self {
+            NumericValue::NegativeZero => return NumericValue::NegativeZero,
+            NumericValue::NaN => return NumericValue::NaN,
+            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => return NumericValue::NaN,
+            _ => {}
+        }
+
+        #[cfg(feature = "high_precision")]
+        {
+            // Use high-precision rug::Float
+            let precision = crate::precision::get_default_precision();
+            if let Some(f) = to_rug_float(&self, precision) {
+                let result = f.tan();
+                return NumericValue::BigDecimal(rug_float_to_bigdecimal(&result));
+            }
+        }
+
+        // Fallback to f64
         match self {
             NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
                 let f = self.to_f64();
@@ -599,17 +820,33 @@ impl NumericValue {
                 let f = d.to_f64().unwrap_or(0.0);
                 NumericValue::from(f.tan())
             }
-            NumericValue::NegativeZero => NumericValue::NegativeZero, // tan(-0) = -0
-            NumericValue::NaN => NumericValue::NaN,
-            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => NumericValue::NaN,
+            _ => unreachable!(),
         }
     }
 
     pub fn asin(self) -> NumericValue {
-        // TODO: For high precision, implement using Taylor series with Decimal:
-        // asin(x) = x + x³/6 + 3x⁵/40 + ... (for |x| < 1)
-        // Or use Newton's method: find y such that sin(y) = x
-        // For now, using f64 conversion for compatibility
+        // Special value handling first
+        match &self {
+            NumericValue::NegativeZero => return NumericValue::NegativeZero,
+            NumericValue::NaN => return NumericValue::NaN,
+            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => return NumericValue::NaN,
+            _ => {}
+        }
+
+        #[cfg(feature = "high_precision")]
+        {
+            // Use high-precision rug::Float
+            let precision = crate::precision::get_default_precision();
+            if let Some(f) = to_rug_float(&self, precision) {
+                if f.clone().abs() > 1.0 {
+                    return NumericValue::NaN;
+                }
+                let result = f.asin();
+                return NumericValue::BigDecimal(rug_float_to_bigdecimal(&result));
+            }
+        }
+
+        // Fallback to f64
         match self {
             NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
                 let f = self.to_f64();
@@ -627,16 +864,33 @@ impl NumericValue {
                     NumericValue::from(f.asin())
                 }
             }
-            NumericValue::NegativeZero => NumericValue::NegativeZero, // asin(-0) = -0
-            NumericValue::NaN => NumericValue::NaN,
-            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => NumericValue::NaN,
+            _ => unreachable!(),
         }
     }
 
     pub fn acos(self) -> NumericValue {
-        // TODO: For high precision, implement using relationship acos(x) = π/2 - asin(x)
-        // Or use Newton's method: find y such that cos(y) = x
-        // For now, using f64 conversion for compatibility
+        // Special value handling first
+        match &self {
+            NumericValue::NegativeZero => return NumericValue::from(std::f64::consts::FRAC_PI_2),
+            NumericValue::NaN => return NumericValue::NaN,
+            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => return NumericValue::NaN,
+            _ => {}
+        }
+
+        #[cfg(feature = "high_precision")]
+        {
+            // Use high-precision rug::Float
+            let precision = crate::precision::get_default_precision();
+            if let Some(f) = to_rug_float(&self, precision) {
+                if f.clone().abs() > 1.0 {
+                    return NumericValue::NaN;
+                }
+                let result = f.acos();
+                return NumericValue::BigDecimal(rug_float_to_bigdecimal(&result));
+            }
+        }
+
+        // Fallback to f64
         match self {
             NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
                 let f = self.to_f64();
@@ -654,17 +908,31 @@ impl NumericValue {
                     NumericValue::from(f.acos())
                 }
             }
-            NumericValue::NegativeZero => NumericValue::from(std::f64::consts::FRAC_PI_2), // acos(-0) = π/2
-            NumericValue::NaN => NumericValue::NaN,
-            NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => NumericValue::NaN,
+            _ => unreachable!(),
         }
     }
 
     pub fn atan(self) -> NumericValue {
-        // TODO: For high precision, implement using Taylor series with Decimal:
-        // atan(x) = x - x³/3 + x⁵/5 - x⁷/7 + ... (for |x| < 1)
-        // For |x| >= 1, use atan(x) = π/2 - atan(1/x)
-        // For now, using f64 conversion for compatibility
+        // Special value handling first
+        match &self {
+            NumericValue::NegativeZero => return NumericValue::NegativeZero,
+            NumericValue::NaN => return NumericValue::NaN,
+            NumericValue::PositiveInfinity => return NumericValue::from(std::f64::consts::FRAC_PI_2),
+            NumericValue::NegativeInfinity => return NumericValue::from(-std::f64::consts::FRAC_PI_2),
+            _ => {}
+        }
+
+        #[cfg(feature = "high_precision")]
+        {
+            // Use high-precision rug::Float
+            let precision = crate::precision::get_default_precision();
+            if let Some(f) = to_rug_float(&self, precision) {
+                let result = f.atan();
+                return NumericValue::BigDecimal(rug_float_to_bigdecimal(&result));
+            }
+        }
+
+        // Fallback to f64
         match self {
             NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
                 let f = self.to_f64();
@@ -674,42 +942,38 @@ impl NumericValue {
                 let f = d.to_f64().unwrap_or(0.0);
                 NumericValue::from(f.atan())
             }
-            NumericValue::NegativeZero => NumericValue::NegativeZero, // atan(-0) = -0
-            NumericValue::NaN => NumericValue::NaN,
-            NumericValue::PositiveInfinity => NumericValue::from(std::f64::consts::FRAC_PI_2),
-            NumericValue::NegativeInfinity => NumericValue::from(-std::f64::consts::FRAC_PI_2),
+            _ => unreachable!(),
         }
     }
 
     pub fn atan2(self, x: NumericValue) -> NumericValue {
-        // TODO: For high precision, implement using Decimal arithmetic:
-        // atan2(y, x) handles all quadrants and edge cases
-        // Would need to implement atan with Decimal and handle all JS edge cases
-        // For now, using f64 conversion for compatibility
+        // Handle NaN cases
+        match (&self, &x) {
+            (NumericValue::NaN, _) | (_, NumericValue::NaN) => return NumericValue::NaN,
+            _ => {}
+        }
+
+        #[cfg(feature = "high_precision")]
+        {
+            // Try high-precision path
+            let precision = crate::precision::get_default_precision();
+            if let (Some(y_f), Some(x_f)) = (to_rug_float(&self, precision), to_rug_float(&x, precision)) {
+                let result = y_f.atan2(&x_f);
+                return NumericValue::BigDecimal(rug_float_to_bigdecimal(&result));
+            }
+        }
+
+        // Fallback to f64 for all cases (special handling for -0.0)
+        let y_f64 = match &self {
+            NumericValue::NegativeZero => -0.0_f64,
+            _ => self.to_f64(),
+        };
+        let x_f64 = match &x {
+            NumericValue::NegativeZero => -0.0_f64,
+            _ => x.to_f64(),
+        };
+
         match (self, x) {
-            (NumericValue::Rational(_), _) | (_, NumericValue::Rational(_)) => {
-                unimplemented!("atan2 with Rational not yet implemented")
-            }
-            (NumericValue::BigDecimal(_), _) | (_, NumericValue::BigDecimal(_)) => {
-                unimplemented!("atan2 with BigDecimal not yet implemented")
-            }
-            (NumericValue::Decimal(y), NumericValue::Decimal(x_val)) => {
-                let y_f = y.to_f64().unwrap_or(0.0);
-                let x_f = x_val.to_f64().unwrap_or(0.0);
-                NumericValue::from(y_f.atan2(x_f))
-            }
-            (NumericValue::NegativeZero, NumericValue::Decimal(x_val)) => {
-                let x_f = x_val.to_f64().unwrap_or(0.0);
-                NumericValue::from((-0.0_f64).atan2(x_f))
-            }
-            (NumericValue::Decimal(y), NumericValue::NegativeZero) => {
-                let y_f = y.to_f64().unwrap_or(0.0);
-                NumericValue::from(y_f.atan2(-0.0_f64))
-            }
-            (NumericValue::NegativeZero, NumericValue::NegativeZero) => {
-                NumericValue::from((-0.0_f64).atan2(-0.0_f64))
-            }
-            (NumericValue::NaN, _) | (_, NumericValue::NaN) => NumericValue::NaN,
             // Handle infinity cases according to JS Math.atan2
             (NumericValue::PositiveInfinity, NumericValue::PositiveInfinity) => {
                 NumericValue::from(std::f64::consts::FRAC_PI_4)
@@ -736,6 +1000,8 @@ impl NumericValue {
             (NumericValue::NegativeZero, NumericValue::NegativeInfinity) => {
                 NumericValue::from(-std::f64::consts::PI)
             }
+            // Default case: use pre-computed f64 values
+            _ => NumericValue::from(y_f64.atan2(x_f64))
         }
     }
 
@@ -930,7 +1196,7 @@ impl Number {
         let result_value = self.value.log();
         Number {
             value: result_value.clone(),
-            apprx: if matches!(result_value, NumericValue::Decimal(_)) {
+            apprx: if matches!(result_value, NumericValue::Decimal(_) | NumericValue::BigDecimal(_)) {
                 Some(ApproximationType::Transcendental)
             } else {
                 None
@@ -943,7 +1209,7 @@ impl Number {
         let result_value = self.value.log10();
         Number {
             value: result_value.clone(),
-            apprx: if matches!(result_value, NumericValue::Decimal(_)) {
+            apprx: if matches!(result_value, NumericValue::Decimal(_) | NumericValue::BigDecimal(_)) {
                 Some(ApproximationType::Transcendental)
             } else {
                 None
@@ -956,7 +1222,7 @@ impl Number {
         let result_value = self.value.log2();
         Number {
             value: result_value.clone(),
-            apprx: if matches!(result_value, NumericValue::Decimal(_)) {
+            apprx: if matches!(result_value, NumericValue::Decimal(_) | NumericValue::BigDecimal(_)) {
                 Some(ApproximationType::Transcendental)
             } else {
                 None
@@ -969,7 +1235,7 @@ impl Number {
         let result_value = self.value.exp();
         Number {
             value: result_value.clone(),
-            apprx: if matches!(result_value, NumericValue::Decimal(_)) {
+            apprx: if matches!(result_value, NumericValue::Decimal(_) | NumericValue::BigDecimal(_)) {
                 Some(ApproximationType::Transcendental)
             } else {
                 None
@@ -982,7 +1248,7 @@ impl Number {
         let result_value = self.value.sin();
         Number {
             value: result_value.clone(),
-            apprx: if matches!(result_value, NumericValue::Decimal(_)) {
+            apprx: if matches!(result_value, NumericValue::Decimal(_) | NumericValue::BigDecimal(_)) {
                 Some(ApproximationType::Transcendental)
             } else {
                 None
@@ -995,7 +1261,7 @@ impl Number {
         let result_value = self.value.cos();
         Number {
             value: result_value.clone(),
-            apprx: if matches!(result_value, NumericValue::Decimal(_)) {
+            apprx: if matches!(result_value, NumericValue::Decimal(_) | NumericValue::BigDecimal(_)) {
                 Some(ApproximationType::Transcendental)
             } else {
                 None
@@ -1008,7 +1274,7 @@ impl Number {
         let result_value = self.value.tan();
         Number {
             value: result_value.clone(),
-            apprx: if matches!(result_value, NumericValue::Decimal(_)) {
+            apprx: if matches!(result_value, NumericValue::Decimal(_) | NumericValue::BigDecimal(_)) {
                 Some(ApproximationType::Transcendental)
             } else {
                 None
@@ -1021,7 +1287,7 @@ impl Number {
         let result_value = self.value.asin();
         Number {
             value: result_value.clone(),
-            apprx: if matches!(result_value, NumericValue::Decimal(_)) {
+            apprx: if matches!(result_value, NumericValue::Decimal(_) | NumericValue::BigDecimal(_)) {
                 Some(ApproximationType::Transcendental)
             } else {
                 None
@@ -1034,7 +1300,7 @@ impl Number {
         let result_value = self.value.acos();
         Number {
             value: result_value.clone(),
-            apprx: if matches!(result_value, NumericValue::Decimal(_)) {
+            apprx: if matches!(result_value, NumericValue::Decimal(_) | NumericValue::BigDecimal(_)) {
                 Some(ApproximationType::Transcendental)
             } else {
                 None
@@ -1047,7 +1313,7 @@ impl Number {
         let result_value = self.value.atan();
         Number {
             value: result_value.clone(),
-            apprx: if matches!(result_value, NumericValue::Decimal(_)) {
+            apprx: if matches!(result_value, NumericValue::Decimal(_) | NumericValue::BigDecimal(_)) {
                 Some(ApproximationType::Transcendental)
             } else {
                 None
@@ -1060,7 +1326,7 @@ impl Number {
         let result_value = self.value.atan2(x.value);
         Number {
             value: result_value.clone(),
-            apprx: if matches!(result_value, NumericValue::Decimal(_)) {
+            apprx: if matches!(result_value, NumericValue::Decimal(_) | NumericValue::BigDecimal(_)) {
                 Some(ApproximationType::Transcendental)
             } else {
                 None

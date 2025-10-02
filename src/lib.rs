@@ -9,11 +9,13 @@ pub mod core;
 pub mod js_semantics;
 pub mod math;
 pub mod ops;
+pub mod precision;
 pub mod representation;
 pub mod traits;
 
 use crate::core::NumericValue;
 pub use crate::core::{ApproximationType, Number};
+pub use crate::precision::{get_default_precision, set_default_precision};
 
 pub mod prelude {
     pub use super::Number;
@@ -117,6 +119,10 @@ mod metadata_tests {
 
             // sqrt(2) ≈ 1.414... → IS transcendental
             let sqrt2 = Number::from(2).sqrt();
+            // With high_precision feature, transcendental ops return BigDecimal
+            #[cfg(feature = "high_precision")]
+            assert_eq!(sqrt2.representation(), "BigDecimal");
+            #[cfg(not(feature = "high_precision"))]
             assert_eq!(sqrt2.representation(), "Decimal");
             sqrt2.assert_transcendental();
         }
