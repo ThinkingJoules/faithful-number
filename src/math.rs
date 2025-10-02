@@ -16,7 +16,7 @@ use rug::ops::Pow;
 #[cfg(feature = "high_precision")]
 fn to_rug_float(value: &NumericValue, precision: u32) -> Option<Float> {
     match value {
-        NumericValue::Rational(r) => {
+        NumericValue::Rational(r, _) => {
             let numer = *r.numer();
             let denom = *r.denom();
             Some(Float::with_val(precision, numer) / Float::with_val(precision, denom))
@@ -49,7 +49,7 @@ impl NumericValue {
     // Mathematical functions following JS semantics
     pub fn abs(self) -> NumericValue {
         match self {
-            NumericValue::Rational(r) => NumericValue::Rational(r.abs()),
+            NumericValue::Rational(r, _) => NumericValue::from_rational(r.abs()),
             NumericValue::Decimal(d) => NumericValue::Decimal(d.abs()),
             NumericValue::BigDecimal(bd) => NumericValue::BigDecimal(bd.abs()),
             NumericValue::NegativeZero => NumericValue::ZERO, // abs(-0) = +0
@@ -61,7 +61,7 @@ impl NumericValue {
 
     pub fn floor(self) -> NumericValue {
         match self {
-            NumericValue::Rational(_) | NumericValue::Decimal(_) | NumericValue::BigDecimal(_) => {
+            NumericValue::Rational(_, _) | NumericValue::Decimal(_) | NumericValue::BigDecimal(_) => {
                 let f = self.to_f64();
                 NumericValue::from(f.floor())
             }
@@ -74,7 +74,7 @@ impl NumericValue {
 
     pub fn ceil(self) -> NumericValue {
         match self {
-            NumericValue::Rational(_) | NumericValue::Decimal(_) | NumericValue::BigDecimal(_) => {
+            NumericValue::Rational(_, _) | NumericValue::Decimal(_) | NumericValue::BigDecimal(_) => {
                 let f = self.to_f64();
                 NumericValue::from(f.ceil())
             }
@@ -87,7 +87,7 @@ impl NumericValue {
 
     pub fn round(self) -> NumericValue {
         match self {
-            NumericValue::Rational(_) | NumericValue::Decimal(_) | NumericValue::BigDecimal(_) => {
+            NumericValue::Rational(_, _) | NumericValue::Decimal(_) | NumericValue::BigDecimal(_) => {
                 // JavaScript round: rounds to nearest integer, ties away from zero
                 // For -3.5, should round to -3 (away from zero)
                 let f = self.to_f64();
@@ -110,7 +110,7 @@ impl NumericValue {
 
     pub fn round_dp(self, dp: u32) -> NumericValue {
         match self {
-            NumericValue::Rational(_) => unimplemented!("Rational round_dp not yet implemented"),
+            NumericValue::Rational(_, _) => unimplemented!("Rational round_dp not yet implemented"),
             NumericValue::Decimal(d) => NumericValue::Decimal(d.round_dp(dp)),
             NumericValue::BigDecimal(_) => {
                 unimplemented!("BigDecimal round_dp not yet implemented")
@@ -124,11 +124,11 @@ impl NumericValue {
 
     pub fn trunc(self) -> NumericValue {
         match self {
-            NumericValue::Rational(r) => {
+            NumericValue::Rational(r, _) => {
                 if r.is_integer() {
-                    NumericValue::Rational(r)
+                    NumericValue::from_rational(r)
                 } else {
-                    NumericValue::Rational(r.trunc())
+                    NumericValue::from_rational(r.trunc())
                 }
             }
             NumericValue::Decimal(d) => NumericValue::Decimal(d.trunc()),
@@ -142,13 +142,13 @@ impl NumericValue {
 
     pub fn sqrt(self) -> NumericValue {
         match self {
-            NumericValue::Rational(r) => {
+            NumericValue::Rational(r, _) => {
                 // Check for negative (NaN) and zero first
                 if r < Ratio::from_integer(0) {
                     return NumericValue::NaN;
                 }
                 if r.is_zero() {
-                    return NumericValue::Rational(Ratio::from_integer(0));
+                    return NumericValue::from_rational(Ratio::from_integer(0));
                 }
 
                 // Check for perfect square using integer arithmetic only
@@ -185,7 +185,7 @@ impl NumericValue {
                 if let (Some(numer_sqrt), Some(denom_sqrt)) =
                     (is_perfect_square(numer), is_perfect_square(denom))
                 {
-                    return NumericValue::Rational(Ratio::new(numer_sqrt, denom_sqrt));
+                    return NumericValue::from_rational(Ratio::new(numer_sqrt, denom_sqrt));
                 }
 
                 // Not a perfect square - convert to Decimal for approximation
@@ -262,16 +262,16 @@ impl NumericValue {
     pub fn pow(self, exponent: NumericValue) -> NumericValue {
         match (self, exponent) {
             // Rational base: handle sqrt specially, otherwise convert to Decimal
-            (NumericValue::Rational(base), exp) => {
+            (NumericValue::Rational(base, _), exp) => {
                 // Check if exponent is 0.5 (sqrt case)
-                if let NumericValue::Rational(exp_r) = &exp {
+                if let NumericValue::Rational(exp_r, _) = &exp {
                     if *exp_r.numer() == 1 && *exp_r.denom() == 2 {
                         // Use Rational sqrt which preserves exactness for perfect squares
-                        return NumericValue::Rational(base).sqrt();
+                        return NumericValue::from_rational(base).sqrt();
                     }
                 } else if let NumericValue::Decimal(exp_d) = &exp {
                     if *exp_d == Decimal::from_str("0.5").unwrap_or(Decimal::ZERO) {
-                        return NumericValue::Rational(base).sqrt();
+                        return NumericValue::from_rational(base).sqrt();
                     }
                 }
                 // General case: convert to Decimal
@@ -297,7 +297,7 @@ impl NumericValue {
                 NumericValue::from(base_f64.powf(exp_f64))
             }
             // Rational exponent: convert to Decimal and use Decimal pow
-            (base, NumericValue::Rational(exp)) => {
+            (base, NumericValue::Rational(exp, _)) => {
                 let exp_decimal = Decimal::from(*exp.numer()) / Decimal::from(*exp.denom());
                 base.pow(NumericValue::Decimal(exp_decimal))
             }
@@ -601,7 +601,7 @@ impl NumericValue {
 
         // Fallback to f64 (when high_precision is disabled or conversion failed)
         match self {
-            NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
+            NumericValue::Rational(_, _) | NumericValue::BigDecimal(_) => {
                 let f = self.to_f64();
                 if f <= 0.0 {
                     if f == 0.0 {
@@ -657,7 +657,7 @@ impl NumericValue {
 
         // Fallback to f64
         match self {
-            NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
+            NumericValue::Rational(_, _) | NumericValue::BigDecimal(_) => {
                 let f = self.to_f64();
                 if f <= 0.0 {
                     if f == 0.0 {
@@ -713,7 +713,7 @@ impl NumericValue {
 
         // Fallback to f64
         match self {
-            NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
+            NumericValue::Rational(_, _) | NumericValue::BigDecimal(_) => {
                 let f = self.to_f64();
                 if f <= 0.0 {
                     if f == 0.0 {
@@ -763,7 +763,7 @@ impl NumericValue {
 
         // Fallback to f64
         match self {
-            NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
+            NumericValue::Rational(_, _) | NumericValue::BigDecimal(_) => {
                 let f = self.to_f64();
                 NumericValue::from(f.exp())
             }
@@ -798,7 +798,7 @@ impl NumericValue {
 
         // Fallback to f64
         match self {
-            NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
+            NumericValue::Rational(_, _) | NumericValue::BigDecimal(_) => {
                 let f = self.to_f64();
                 NumericValue::from(f.sin())
             }
@@ -833,7 +833,7 @@ impl NumericValue {
 
         // Fallback to f64
         match self {
-            NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
+            NumericValue::Rational(_, _) | NumericValue::BigDecimal(_) => {
                 let f = self.to_f64();
                 NumericValue::from(f.cos())
             }
@@ -868,7 +868,7 @@ impl NumericValue {
 
         // Fallback to f64
         match self {
-            NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
+            NumericValue::Rational(_, _) | NumericValue::BigDecimal(_) => {
                 let f = self.to_f64();
                 NumericValue::from(f.tan())
             }
@@ -906,7 +906,7 @@ impl NumericValue {
 
         // Fallback to f64
         match self {
-            NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
+            NumericValue::Rational(_, _) | NumericValue::BigDecimal(_) => {
                 let f = self.to_f64();
                 if f.abs() > 1.0 {
                     NumericValue::NaN
@@ -952,7 +952,7 @@ impl NumericValue {
 
         // Fallback to f64
         match self {
-            NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
+            NumericValue::Rational(_, _) | NumericValue::BigDecimal(_) => {
                 let f = self.to_f64();
                 if f.abs() > 1.0 {
                     NumericValue::NaN
@@ -998,7 +998,7 @@ impl NumericValue {
 
         // Fallback to f64
         match self {
-            NumericValue::Rational(_) | NumericValue::BigDecimal(_) => {
+            NumericValue::Rational(_, _) | NumericValue::BigDecimal(_) => {
                 let f = self.to_f64();
                 NumericValue::from(f.atan())
             }
@@ -1073,7 +1073,7 @@ impl NumericValue {
 
     pub fn to_i32(&self) -> Option<i32> {
         match self {
-            NumericValue::Rational(r) => {
+            NumericValue::Rational(r, _) => {
                 if r.is_integer() {
                     r.to_integer().to_i32()
                 } else {
@@ -1091,7 +1091,7 @@ impl NumericValue {
 
     pub fn to_u32(&self) -> Option<u32> {
         match self {
-            NumericValue::Rational(r) => {
+            NumericValue::Rational(r, _) => {
                 if r.is_integer() {
                     r.to_integer().to_u32()
                 } else {
@@ -1109,7 +1109,7 @@ impl NumericValue {
 
     pub fn to_i64(&self) -> Option<i64> {
         match self {
-            NumericValue::Rational(r) => {
+            NumericValue::Rational(r, _) => {
                 if r.is_integer() {
                     Some(*r.numer())
                 } else {
@@ -1127,7 +1127,7 @@ impl NumericValue {
 
     pub fn to_f64(&self) -> f64 {
         match self {
-            NumericValue::Rational(r) => {
+            NumericValue::Rational(r, _) => {
                 r.numer().to_f64().unwrap_or(0.0) / r.denom().to_f64().unwrap_or(1.0)
             }
             NumericValue::Decimal(d) => d.to_f64().expect("Decimal always fits in f64"),
@@ -1144,7 +1144,7 @@ impl NumericValue {
 
     pub fn to_decimal(&self) -> Option<Decimal> {
         match self {
-            NumericValue::Rational(r) => {
+            NumericValue::Rational(r, _) => {
                 // Try to convert rational to decimal
                 // This may lose precision for repeating decimals
                 let f = r.numer().to_f64()? / r.denom().to_f64()?;
@@ -1477,7 +1477,7 @@ impl Number {
         // Integer powers are exact, fractional powers are approximated
         match &exponent.value {
             NumericValue::Decimal(d) => !d.fract().is_zero(),
-            NumericValue::Rational(r) => !r.is_integer(),
+            NumericValue::Rational(r, _) => !r.is_integer(),
             _ => false,
         }
     }

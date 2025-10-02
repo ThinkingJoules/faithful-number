@@ -18,7 +18,7 @@ impl Zero for Number {
 
     fn is_zero(&self) -> bool {
         match &self.value {
-            NumericValue::Rational(r) => r.is_zero(),
+            NumericValue::Rational(r, _) => r.is_zero(),
             NumericValue::Decimal(d) => d.is_zero(),
             NumericValue::BigDecimal(bd) => bd.is_zero(),
             NumericValue::NegativeZero => true,
@@ -49,7 +49,7 @@ impl Signed for Number {
 
     fn signum(&self) -> Self {
         match &self.value {
-            NumericValue::Rational(_r) => unimplemented!("Rational signum not yet implemented"),
+            NumericValue::Rational(_r, _) => unimplemented!("Rational signum not yet implemented"),
             NumericValue::Decimal(d) => {
                 if d.is_zero() {
                     Number::zero()
@@ -69,7 +69,7 @@ impl Signed for Number {
 
     fn is_positive(&self) -> bool {
         match &self.value {
-            NumericValue::Rational(r) => r.is_positive(),
+            NumericValue::Rational(r, _) => r.is_positive(),
             NumericValue::Decimal(d) => d.is_sign_positive(),
             NumericValue::BigDecimal(bd) => bd.is_positive(),
             NumericValue::NegativeZero => false, // -0 is not positive
@@ -80,7 +80,7 @@ impl Signed for Number {
 
     fn is_negative(&self) -> bool {
         match &self.value {
-            NumericValue::Rational(r) => r.is_negative(),
+            NumericValue::Rational(r, _) => r.is_negative(),
             NumericValue::Decimal(d) => d.is_sign_negative(),
             NumericValue::BigDecimal(bd) => bd.is_negative(),
             NumericValue::NegativeZero => true, // -0 is negative
@@ -114,7 +114,7 @@ impl Num for Number {
 impl ToPrimitive for Number {
     fn to_i64(&self) -> Option<i64> {
         match &self.value {
-            NumericValue::Rational(r) => {
+            NumericValue::Rational(r, _) => {
                 if r.is_integer() {
                     Some(*r.numer())
                 } else {
@@ -130,7 +130,7 @@ impl ToPrimitive for Number {
 
     fn to_u64(&self) -> Option<u64> {
         match &self.value {
-            NumericValue::Rational(r) => {
+            NumericValue::Rational(r, _) => {
                 if r.is_integer() && r.is_positive() {
                     r.numer().to_u64()
                 } else {
@@ -167,7 +167,7 @@ impl FromPrimitive for Number {
 impl Display for Number {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match &self.value {
-            NumericValue::Rational(r) => {
+            NumericValue::Rational(r, _) => {
                 // Display as decimal (JS semantics)
                 if r.is_integer() {
                     write!(f, "{}", r.to_integer())
@@ -190,7 +190,7 @@ impl Display for Number {
 impl Hash for Number {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match &self.value {
-            NumericValue::Rational(_r) => unimplemented!("Rational hash not yet implemented"),
+            NumericValue::Rational(_r, _) => unimplemented!("Rational hash not yet implemented"),
             NumericValue::Decimal(d) => {
                 0u8.hash(state); // Discriminant
                 d.hash(state);
@@ -224,7 +224,7 @@ impl PartialEq for Number {
             // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             (NumericValue::NaN, NumericValue::NaN) => true,
             (NumericValue::NaN, _) | (_, NumericValue::NaN) => false,
-            (NumericValue::Rational(a), NumericValue::Rational(b)) => a == b,
+            (NumericValue::Rational(a, _), NumericValue::Rational(b, _)) => a == b,
             (NumericValue::Decimal(a), NumericValue::Decimal(b)) => a == b,
             (NumericValue::BigDecimal(a), NumericValue::BigDecimal(b)) => a == b,
             (NumericValue::PositiveInfinity, NumericValue::PositiveInfinity) => true,
@@ -236,8 +236,8 @@ impl PartialEq for Number {
 
             // Mixed-type comparisons
             // Rational vs Decimal: convert Decimal to Rational for exact comparison
-            (NumericValue::Rational(r), NumericValue::Decimal(d)) |
-            (NumericValue::Decimal(d), NumericValue::Rational(r)) => {
+            (NumericValue::Rational(r, _), NumericValue::Decimal(d)) |
+            (NumericValue::Decimal(d), NumericValue::Rational(r, _)) => {
                 // Convert Decimal to Rational for exact comparison
                 use num_rational::Ratio;
                 let mantissa = d.mantissa();
@@ -254,8 +254,8 @@ impl PartialEq for Number {
             }
 
             // Rational vs BigDecimal: convert to BigDecimal for comparison
-            (NumericValue::Rational(r), NumericValue::BigDecimal(bd)) |
-            (NumericValue::BigDecimal(bd), NumericValue::Rational(r)) => {
+            (NumericValue::Rational(r, _), NumericValue::BigDecimal(bd)) |
+            (NumericValue::BigDecimal(bd), NumericValue::Rational(r, _)) => {
                 use bigdecimal::{BigDecimal, num_bigint::BigInt};
                 let numer_bd = BigDecimal::from(BigInt::from(*r.numer()));
                 let denom_bd = BigDecimal::from(BigInt::from(*r.denom()));
@@ -275,8 +275,8 @@ impl PartialEq for Number {
             }
 
             // Rational vs NegativeZero
-            (NumericValue::Rational(r), NumericValue::NegativeZero) |
-            (NumericValue::NegativeZero, NumericValue::Rational(r)) => r.is_zero(),
+            (NumericValue::Rational(r, _), NumericValue::NegativeZero) |
+            (NumericValue::NegativeZero, NumericValue::Rational(r, _)) => r.is_zero(),
 
             // BigDecimal vs NegativeZero
             (NumericValue::BigDecimal(bd), NumericValue::NegativeZero) |
@@ -295,31 +295,31 @@ impl PartialOrd for Number {
             (NumericValue::NaN, _) | (_, NumericValue::NaN) => None,
 
             // Rational comparisons
-            (NumericValue::Rational(a), NumericValue::Rational(b)) => a.partial_cmp(b),
-            (NumericValue::Rational(a), NumericValue::Decimal(b)) => {
+            (NumericValue::Rational(a, _), NumericValue::Rational(b, _)) => a.partial_cmp(b),
+            (NumericValue::Rational(a, _), NumericValue::Decimal(b)) => {
                 // Convert Rational to Decimal for comparison
                 let a_dec = Decimal::from(*a.numer()) / Decimal::from(*a.denom());
                 a_dec.partial_cmp(b)
             }
-            (NumericValue::Decimal(a), NumericValue::Rational(b)) => {
+            (NumericValue::Decimal(a), NumericValue::Rational(b, _)) => {
                 let b_dec = Decimal::from(*b.numer()) / Decimal::from(*b.denom());
                 a.partial_cmp(&b_dec)
             }
-            (NumericValue::Rational(a), NumericValue::BigDecimal(b)) => {
+            (NumericValue::Rational(a, _), NumericValue::BigDecimal(b)) => {
                 use bigdecimal::{BigDecimal, num_bigint::BigInt};
                 let numer_bd = BigDecimal::from(BigInt::from(*a.numer()));
                 let denom_bd = BigDecimal::from(BigInt::from(*a.denom()));
                 let a_bd = numer_bd / denom_bd;
                 a_bd.partial_cmp(b)
             }
-            (NumericValue::BigDecimal(a), NumericValue::Rational(b)) => {
+            (NumericValue::BigDecimal(a), NumericValue::Rational(b, _)) => {
                 use bigdecimal::{BigDecimal, num_bigint::BigInt};
                 let numer_bd = BigDecimal::from(BigInt::from(*b.numer()));
                 let denom_bd = BigDecimal::from(BigInt::from(*b.denom()));
                 let b_bd = numer_bd / denom_bd;
                 a.partial_cmp(&b_bd)
             }
-            (NumericValue::Rational(a), NumericValue::NegativeZero) => {
+            (NumericValue::Rational(a, _), NumericValue::NegativeZero) => {
                 if a.is_zero() {
                     Some(Ordering::Equal)
                 } else if a.is_positive() {
@@ -328,7 +328,7 @@ impl PartialOrd for Number {
                     Some(Ordering::Less)
                 }
             }
-            (NumericValue::NegativeZero, NumericValue::Rational(a)) => {
+            (NumericValue::NegativeZero, NumericValue::Rational(a, _)) => {
                 if a.is_zero() {
                     Some(Ordering::Equal)
                 } else if a.is_positive() {
@@ -428,30 +428,30 @@ impl Ord for Number {
             (_, NumericValue::PositiveInfinity) => Ordering::Less,
 
             // Rational comparisons
-            (NumericValue::Rational(a), NumericValue::Rational(b)) => a.cmp(b),
-            (NumericValue::Rational(a), NumericValue::Decimal(b)) => {
+            (NumericValue::Rational(a, _), NumericValue::Rational(b, _)) => a.cmp(b),
+            (NumericValue::Rational(a, _), NumericValue::Decimal(b)) => {
                 let a_dec = Decimal::from(*a.numer()) / Decimal::from(*a.denom());
                 a_dec.cmp(b)
             }
-            (NumericValue::Decimal(a), NumericValue::Rational(b)) => {
+            (NumericValue::Decimal(a), NumericValue::Rational(b, _)) => {
                 let b_dec = Decimal::from(*b.numer()) / Decimal::from(*b.denom());
                 a.cmp(&b_dec)
             }
-            (NumericValue::Rational(a), NumericValue::BigDecimal(b)) => {
+            (NumericValue::Rational(a, _), NumericValue::BigDecimal(b)) => {
                 use bigdecimal::{BigDecimal, num_bigint::BigInt};
                 let numer_bd = BigDecimal::from(BigInt::from(*a.numer()));
                 let denom_bd = BigDecimal::from(BigInt::from(*a.denom()));
                 let a_bd = numer_bd / denom_bd;
                 a_bd.cmp(b)
             }
-            (NumericValue::BigDecimal(a), NumericValue::Rational(b)) => {
+            (NumericValue::BigDecimal(a), NumericValue::Rational(b, _)) => {
                 use bigdecimal::{BigDecimal, num_bigint::BigInt};
                 let numer_bd = BigDecimal::from(BigInt::from(*b.numer()));
                 let denom_bd = BigDecimal::from(BigInt::from(*b.denom()));
                 let b_bd = numer_bd / denom_bd;
                 a.cmp(&b_bd)
             }
-            (NumericValue::Rational(a), NumericValue::NegativeZero) => {
+            (NumericValue::Rational(a, _), NumericValue::NegativeZero) => {
                 if a.is_zero() {
                     Ordering::Equal
                 } else if a.is_positive() {
@@ -460,7 +460,7 @@ impl Ord for Number {
                     Ordering::Less
                 }
             }
-            (NumericValue::NegativeZero, NumericValue::Rational(a)) => {
+            (NumericValue::NegativeZero, NumericValue::Rational(a, _)) => {
                 if a.is_zero() {
                     Ordering::Equal
                 } else if a.is_positive() {

@@ -83,7 +83,7 @@ impl Number {
 impl NumericValue {
     pub(crate) fn to_i32_js_coerce(&self) -> i32 {
         match self {
-            NumericValue::Rational(r) => {
+            NumericValue::Rational(r, _) => {
                 // Convert rational to integer (truncate)
                 r.to_integer()
                     .to_i32()
@@ -115,7 +115,7 @@ impl NumericValue {
 
     pub(crate) fn to_i64_js_coerce(&self) -> i64 {
         match self {
-            NumericValue::Rational(r) => {
+            NumericValue::Rational(r, _) => {
                 // Convert rational to integer (truncate)
                 // to_integer() returns Ratio with denom=1, numer is the integer value
                 r.to_integer().to_i64().unwrap_or(0)
@@ -146,7 +146,7 @@ impl NumericValue {
 
     pub(crate) fn to_u32_js_coerce(&self) -> u32 {
         match self {
-            NumericValue::Rational(_)
+            NumericValue::Rational(_, _)
             | NumericValue::Decimal(_)
             | NumericValue::BigDecimal(_)
             | NumericValue::NegativeZero => {
@@ -169,7 +169,7 @@ impl NumericValue {
 
     pub(crate) fn is_truthy(&self) -> bool {
         match self {
-            NumericValue::Rational(r) => !r.is_zero(), // 0 is falsy, everything else is truthy
+            NumericValue::Rational(r, _) => !r.is_zero(), // 0 is falsy, everything else is truthy
             NumericValue::Decimal(d) => !d.is_zero(),  // 0 is falsy, everything else is truthy
             NumericValue::BigDecimal(bd) => !bd.is_zero(), // 0 is falsy, everything else is truthy
             NumericValue::NegativeZero => false,       // -0 is falsy
@@ -181,7 +181,7 @@ impl NumericValue {
     /// Convert to string following JavaScript's ToString algorithm
     pub(crate) fn to_js_string(&self) -> String {
         match self {
-            NumericValue::Rational(r) => {
+            NumericValue::Rational(r, _) => {
                 // Display rational as decimal (convert to Decimal to maintain precision)
                 if r.is_integer() {
                     r.to_integer().to_string()

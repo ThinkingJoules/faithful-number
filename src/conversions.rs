@@ -91,7 +91,7 @@ impl TryFrom<NumericValue> for i32 {
     fn try_from(js_num: NumericValue) -> Result<i32, Self::Error> {
         match js_num {
             NumericValue::Decimal(d) => d.to_i32().ok_or(()),
-            NumericValue::Rational(r) => {
+            NumericValue::Rational(r, _) => {
                 if r.is_integer() {
                     r.to_integer().to_i32().ok_or(())
                 } else {
@@ -112,7 +112,7 @@ impl TryFrom<NumericValue> for u32 {
     fn try_from(js_num: NumericValue) -> Result<u32, Self::Error> {
         match js_num {
             NumericValue::Decimal(d) => d.to_u32().ok_or(()),
-            NumericValue::Rational(r) => {
+            NumericValue::Rational(r, _) => {
                 if r.is_integer() {
                     r.to_integer().to_u32().ok_or(())
                 } else {
@@ -133,7 +133,7 @@ impl TryFrom<NumericValue> for i64 {
     fn try_from(js_num: NumericValue) -> Result<i64, Self::Error> {
         match js_num {
             NumericValue::Decimal(d) => d.to_i64().ok_or(()),
-            NumericValue::Rational(r) => {
+            NumericValue::Rational(r, _) => {
                 if r.is_integer() {
                     Some(*r.numer()).ok_or(())
                 } else {
@@ -382,7 +382,7 @@ impl TryFrom<Number> for i32 {
     fn try_from(num: Number) -> Result<i32, Self::Error> {
         match num.value {
             NumericValue::Decimal(d) => d.to_i32().ok_or(()),
-            NumericValue::Rational(r) => {
+            NumericValue::Rational(r, _) => {
                 if r.is_integer() {
                     r.to_integer().to_i32().ok_or(())
                 } else {
@@ -403,7 +403,7 @@ impl TryFrom<Number> for u32 {
     fn try_from(num: Number) -> Result<u32, Self::Error> {
         match num.value {
             NumericValue::Decimal(d) => d.to_u32().ok_or(()),
-            NumericValue::Rational(r) => {
+            NumericValue::Rational(r, _) => {
                 if r.is_integer() {
                     r.to_integer().to_u32().ok_or(())
                 } else {
@@ -424,7 +424,7 @@ impl TryFrom<Number> for i64 {
     fn try_from(num: Number) -> Result<i64, Self::Error> {
         match num.value {
             NumericValue::Decimal(d) => d.to_i64().ok_or(()),
-            NumericValue::Rational(r) => {
+            NumericValue::Rational(r, _) => {
                 if r.is_integer() {
                     Some(*r.numer()).ok_or(())
                 } else {
