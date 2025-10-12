@@ -61,7 +61,9 @@ impl NumericValue {
 
     pub fn floor(self) -> NumericValue {
         match self {
-            NumericValue::Rational(_, _) | NumericValue::Decimal(_) | NumericValue::BigDecimal(_) => {
+            NumericValue::Rational(_, _)
+            | NumericValue::Decimal(_)
+            | NumericValue::BigDecimal(_) => {
                 let f = self.to_f64();
                 NumericValue::from(f.floor())
             }
@@ -74,7 +76,9 @@ impl NumericValue {
 
     pub fn ceil(self) -> NumericValue {
         match self {
-            NumericValue::Rational(_, _) | NumericValue::Decimal(_) | NumericValue::BigDecimal(_) => {
+            NumericValue::Rational(_, _)
+            | NumericValue::Decimal(_)
+            | NumericValue::BigDecimal(_) => {
                 let f = self.to_f64();
                 NumericValue::from(f.ceil())
             }
@@ -87,7 +91,9 @@ impl NumericValue {
 
     pub fn round(self) -> NumericValue {
         match self {
-            NumericValue::Rational(_, _) | NumericValue::Decimal(_) | NumericValue::BigDecimal(_) => {
+            NumericValue::Rational(_, _)
+            | NumericValue::Decimal(_)
+            | NumericValue::BigDecimal(_) => {
                 // JavaScript round: rounds to nearest integer, ties away from zero
                 // For -3.5, should round to -3 (away from zero)
                 let f = self.to_f64();
@@ -459,7 +465,6 @@ impl NumericValue {
                                     None => {
                                         // Overflow - graduate to BigDecimal and continue
                                         use crate::ops::arithmetic::decimal_to_bigdecimal;
-                                        use bigdecimal::BigDecimal;
                                         let mut result_bd = decimal_to_bigdecimal(result);
                                         let mut base_bd = decimal_to_bigdecimal(current_base);
                                         result_bd = result_bd * base_bd.clone();
@@ -482,7 +487,6 @@ impl NumericValue {
                                 None => {
                                     // Overflow on base squaring - graduate to BigDecimal
                                     use crate::ops::arithmetic::decimal_to_bigdecimal;
-                                    use bigdecimal::BigDecimal;
                                     let mut result_bd = decimal_to_bigdecimal(result);
                                     let mut base_bd = decimal_to_bigdecimal(current_base);
                                     base_bd = base_bd.clone() * base_bd.clone();

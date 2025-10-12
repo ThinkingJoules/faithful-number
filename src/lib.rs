@@ -17,12 +17,19 @@ use crate::core::NumericValue;
 pub use crate::core::{ApproximationType, Number};
 pub use crate::precision::{get_default_precision, set_default_precision};
 
+pub mod repr {
+    pub use bigdecimal::BigDecimal;
+    pub use num_rational::Rational64;
+    pub use rust_decimal::Decimal;
+    pub use rust_decimal::RoundingStrategy;
+}
+
 pub mod prelude {
     pub use super::Number;
     pub use super::num;
+    pub use super::repr::*;
     pub use core::str::FromStr;
     pub use num_traits::{FromPrimitive, One, Signed, ToPrimitive, Zero};
-    pub use rust_decimal::{Decimal, RoundingStrategy};
 }
 #[cfg(test)]
 mod tests {
@@ -233,8 +240,14 @@ mod metadata_tests {
             // Multiply - causes overflow, creates rational approximation
             let intermediate = third.clone() * huge1.clone() * huge2.clone();
 
-            println!("Intermediate representation: {}", intermediate.representation());
-            println!("Is rational approximation? {}", intermediate.is_rational_approximation());
+            println!(
+                "Intermediate representation: {}",
+                intermediate.representation()
+            );
+            println!(
+                "Is rational approximation? {}",
+                intermediate.is_rational_approximation()
+            );
 
             // KEY TEST: Can we recover the original 1/3?
             let recovered = intermediate / huge1 / huge2;
@@ -246,10 +259,16 @@ mod metadata_tests {
             // If intermediate was stored as BigDecimal, we CAN recover exactly
 
             // EXPECTED: recovered should be Rational(1, 3) - the original value
-            assert_eq!(recovered.representation(), "Rational",
-                "Should recover to Rational representation");
-            assert_eq!(recovered.to_rational64(), Some(Ratio::new(1, 3)),
-                "Should recover exact 1/3, not a truncated approximation");
+            assert_eq!(
+                recovered.representation(),
+                "Rational",
+                "Should recover to Rational representation"
+            );
+            assert_eq!(
+                recovered.to_rational64(),
+                Some(Ratio::new(1, 3)),
+                "Should recover exact 1/3, not a truncated approximation"
+            );
         }
 
         #[test]
@@ -259,20 +278,34 @@ mod metadata_tests {
 
             // Create a huge BigDecimal (10^50, way beyond Decimal's range)
             let huge = Number::from(10.0).pow(Number::from(50));
-            assert_eq!(huge.representation(), "BigDecimal", "10^50 should be BigDecimal");
+            assert_eq!(
+                huge.representation(),
+                "BigDecimal",
+                "10^50 should be BigDecimal"
+            );
 
             // Create a tiny fraction (1/10^50) - also BigDecimal
             let tiny = Number::from(1.0) / Number::from(10.0).pow(Number::from(50));
-            assert_eq!(tiny.representation(), "BigDecimal", "10^-50 should be BigDecimal");
+            assert_eq!(
+                tiny.representation(),
+                "BigDecimal",
+                "10^-50 should be BigDecimal"
+            );
 
             // Multiply: 10^50 * 10^-50 = 1
             let result = huge * tiny;
 
             // Should demote back to Rational(1, 1)
-            assert_eq!(result.representation(), "Rational",
-                "BigDecimal * BigDecimal = 1 should demote to Rational");
-            assert_eq!(result.to_rational64(), Some(Ratio::new(1, 1)),
-                "Should be exact 1/1");
+            assert_eq!(
+                result.representation(),
+                "Rational",
+                "BigDecimal * BigDecimal = 1 should demote to Rational"
+            );
+            assert_eq!(
+                result.to_rational64(),
+                Some(Ratio::new(1, 1)),
+                "Should be exact 1/1"
+            );
         }
     }
 }

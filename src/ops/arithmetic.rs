@@ -413,7 +413,6 @@ impl Mul for NumericValue {
                     Some(result) => (NumericValue::Decimal(result), false),
                     None => {
                         // Overflow - graduate to BigDecimal
-                        use bigdecimal::BigDecimal;
                         let a_bd = decimal_to_bigdecimal(a);
                         let b_bd = decimal_to_bigdecimal(b);
                         (NumericValue::BigDecimal(a_bd * b_bd), false)
@@ -427,7 +426,6 @@ impl Mul for NumericValue {
             }
             (NumericValue::BigDecimal(a), NumericValue::Decimal(b))
             | (NumericValue::Decimal(b), NumericValue::BigDecimal(a)) => {
-                use bigdecimal::BigDecimal;
                 let b_bd = decimal_to_bigdecimal(b);
                 (NumericValue::BigDecimal(a * b_bd), false)
             }
@@ -674,7 +672,6 @@ impl Div for NumericValue {
                             Some(result) => (NumericValue::from_decimal(result), false),
                             None => {
                                 // Graduate to BigDecimal
-                                use bigdecimal::BigDecimal;
                                 let a_bd = decimal_to_bigdecimal(a);
                                 let b_bd = decimal_to_bigdecimal(b_dec);
                                 (NumericValue::BigDecimal(a_bd / b_bd), false)
@@ -1348,10 +1345,13 @@ impl Rem for Number {
             None
         };
 
-        Number {
+        let result = Number {
             value: self.value % rhs.value,
             apprx,
-        }
+        };
+
+        // Try to demote Decimal result back to Rational when possible
+        result.try_demote()
     }
 }
 

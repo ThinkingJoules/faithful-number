@@ -1,10 +1,6 @@
 use bigdecimal::BigDecimal;
-use num_rational::Ratio;
-use num_traits::ToPrimitive;
+use num_rational::{Ratio, Rational64};
 use rust_decimal::Decimal;
-
-/// Type alias for Rational64 (exact fractions with i64 numerator/denominator)
-pub type Rational64 = Ratio<i64>;
 
 /// A smart number type that supports multiple internal representations
 /// with automatic upgrades for precision and proper handling of IEEE special values
@@ -29,12 +25,12 @@ pub(crate) enum NumericValue {
 
 impl NumericValue {
     // Constants
-    pub const NAN: NumericValue = NumericValue::NaN;
+    // pub const NAN: NumericValue = NumericValue::NaN;
     pub const POSITIVE_INFINITY: NumericValue = NumericValue::PositiveInfinity;
     pub const NEGATIVE_INFINITY: NumericValue = NumericValue::NegativeInfinity;
     pub const ZERO: NumericValue = NumericValue::Decimal(Decimal::ZERO);
     pub const ONE: NumericValue = NumericValue::Decimal(Decimal::ONE);
-    pub const NEGATIVE_ZERO: NumericValue = NumericValue::NegativeZero;
+    // pub const NEGATIVE_ZERO: NumericValue = NumericValue::NegativeZero;
 
     // Constructors for Decimal
     pub fn new(num: i64, scale: u32) -> Self {
@@ -46,9 +42,20 @@ impl NumericValue {
     }
 
     pub fn try_from_i128_with_scale(num: i128, scale: u32) -> Result<Self, rust_decimal::Error> {
-        Ok(Self::Decimal(Decimal::try_from_i128_with_scale(
-            num, scale,
-        )?))
+        match Decimal::try_from_i128_with_scale(num, scale) {
+            Ok(d) => Ok(Self::Decimal(d)),
+            Err(rust_decimal::Error::ExceedsMaximumPossibleValue) => {
+                // Fall back to BigDecimal for values that exceed Decimal capacity
+                use bigdecimal::BigDecimal;
+                let bd = if scale == 0 {
+                    BigDecimal::from(num)
+                } else {
+                    BigDecimal::from(num) / BigDecimal::from(10i128.pow(scale))
+                };
+                Ok(Self::BigDecimal(bd))
+            }
+            Err(e) => Err(e),
+        }
     }
 
     // Constructors for new numeric types
@@ -193,6 +200,7 @@ impl Number {
     }
 
     pub fn try_from_i128_with_scale(num: i128, scale: u32) -> Result<Self, rust_decimal::Error> {
+        // Automatically falls back to BigDecimal if num exceeds Decimal capacity
         Ok(Number {
             value: NumericValue::try_from_i128_with_scale(num, scale)?,
             apprx: None,
@@ -541,7 +549,7 @@ fn rational_approximation(d: Decimal, max_denom: i64) -> Option<Rational64> {
     let mut p_prev1 = a0;
     let mut q_prev1 = 1i128;
 
-    a = a % b;  // Remainder - pure integer op
+    a = a % b; // Remainder - pure integer op
 
     let (mut best_n, mut best_d) = (a0, 1i128);
 
@@ -561,7 +569,7 @@ fn rational_approximation(d: Decimal, max_denom: i64) -> Option<Rational64> {
             break;
         }
 
-        let r = b % a;  // Remainder
+        let r = b % a; // Remainder
         b = a;
         a = r;
 
@@ -623,7 +631,8 @@ fn try_decimal_to_rational_bigdecimal(bd: &BigDecimal) -> Option<Rational64> {
         let candidate = rational_approximation(d, i64::MAX)?;
 
         // CRITICAL: Verify exact match by converting back to BigDecimal
-        let reconstructed = BigDecimal::from(*candidate.numer()) / BigDecimal::from(*candidate.denom());
+        let reconstructed =
+            BigDecimal::from(*candidate.numer()) / BigDecimal::from(*candidate.denom());
 
         if reconstructed == *bd {
             return Some(candidate);
@@ -640,7 +649,8 @@ fn try_decimal_to_rational_bigdecimal(bd: &BigDecimal) -> Option<Rational64> {
         let candidate = rational_approximation(d, i64::MAX)?;
 
         // CRITICAL: Verify exact match against ORIGINAL BigDecimal
-        let reconstructed = BigDecimal::from(*candidate.numer()) / BigDecimal::from(*candidate.denom());
+        let reconstructed =
+            BigDecimal::from(*candidate.numer()) / BigDecimal::from(*candidate.denom());
 
         if reconstructed == *bd {
             return Some(candidate);
@@ -718,8 +728,13 @@ mod test_demot {
         // Actually, due to decimal precision, it might not be exactly 5/3
         // Let's verify it matches the original decimal
         let reconstructed = Decimal::from(*r.numer()) / Decimal::from(*r.denom());
-        assert_eq!(reconstructed, five_thirds,
-            "CF approximation should match original: got {}/{}", r.numer(), r.denom());
+        assert_eq!(
+            reconstructed,
+            five_thirds,
+            "CF approximation should match original: got {}/{}",
+            r.numer(),
+            r.denom()
+        );
     }
 
     #[test]
