@@ -14,10 +14,21 @@ pub mod precision;
 pub mod representation;
 pub mod traits;
 
+#[cfg(feature = "format")]
+pub mod format;
+
+#[cfg(any(feature = "serde_str", feature = "serde_bin"))]
+mod serde_impl;
+
 use crate::core::NumericValue;
 pub use crate::core::{ApproximationType, Number};
 pub use crate::ordered::OrderedNumber;
 pub use crate::precision::{get_default_precision, set_default_precision};
+
+#[cfg(feature = "format")]
+pub use crate::format::{
+    DisplayOptions, ExpNotation, Notation, ParseError, ParseOptions, RegionalFormat,
+};
 
 pub mod repr {
     pub use bigdecimal::BigDecimal;

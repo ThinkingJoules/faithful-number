@@ -48,6 +48,9 @@ By default, `faithful-number` follows IEEE 754 and mathematical semantics:
 | `js_string_parse` | Empty string parses to `0`, whitespace trimming |
 | `js_compat` | Enables all JS compatibility features above |
 | `high_precision` | MPFR-backed transcendentals via `rug` crate |
+| `format` | Rich display formatting and parsing (regional formats, scientific notation) |
+| `serde_str` | String-based serialization for JSON, TOML, etc. |
+| `serde_bin` | Binary serialization via onenum (bincode, etc.) |
 
 ```toml
 [dependencies]
@@ -58,6 +61,84 @@ faithful-number = { version = "0.2", features = ["js_compat"] }
 
 # For high-precision transcendentals:
 faithful-number = { version = "0.2", features = ["high_precision"] }
+
+# For JSON serialization:
+faithful-number = { version = "0.2", features = ["serde_str"] }
+
+# For binary serialization:
+faithful-number = { version = "0.2", features = ["serde_bin"] }
+```
+
+## Serialization
+
+### String Serialization (`serde_str`)
+
+For human-readable formats like JSON and TOML:
+
+```rust
+use faithful_number::Number;
+
+let n = Number::from(42);
+let json = serde_json::to_string(&n).unwrap();
+assert_eq!(json, r#"["42"]"#);
+
+// Approximation metadata is preserved
+let sqrt2 = Number::from(2).sqrt();
+let json = serde_json::to_string(&sqrt2).unwrap();
+// ["1.41421356...", "transcendental"]
+
+let back: Number = serde_json::from_str(&json).unwrap();
+assert!(!back.is_exact());
+```
+
+Format: `["value"]` for exact numbers, `["value", "transcendental"]` or `["value", "rational_approximation"]` for approximations.
+
+### Binary Serialization (`serde_bin`)
+
+For compact binary formats like bincode:
+
+```rust
+use faithful_number::Number;
+
+let n = Number::from(42);
+let bytes = bincode::serialize(&n).unwrap();
+let back: Number = bincode::deserialize(&bytes).unwrap();
+assert_eq!(n, back);
+```
+
+Uses [onenum](https://github.com/example/onenum) encoding with a suffix byte for approximation type. The onenum bytes remain sortable (the suffix doesn't affect sort order).
+
+**Note:** `serde_str` and `serde_bin` are mutually exclusive. Enable only one.
+
+## Formatting (`format` feature)
+
+Rich display formatting with regional number formats and scientific notation:
+
+```rust
+use faithful_number::{Number, DisplayOptions};
+use std::str::FromStr;
+
+let n = Number::from_str("1234567.89").unwrap();
+
+// US format: 1,234,567.89
+assert_eq!(n.format(&DisplayOptions::us()), "1,234,567.89");
+
+// European format: 1.234.567,89
+assert_eq!(n.format(&DisplayOptions::european()), "1.234.567,89");
+
+// Scientific notation: 1.23456789e6
+assert_eq!(n.format(&DisplayOptions::scientific()), "1.234568e6");
+```
+
+### Parsing Formatted Numbers
+
+```rust
+use faithful_number::{Number, ParseOptions};
+use std::str::FromStr;
+
+// Parse European format
+let n = Number::parse_formatted("1.234.567,89", &ParseOptions::european()).unwrap();
+assert_eq!(n, Number::from_str("1234567.89").unwrap());
 ```
 
 ## Using Numbers in Collections

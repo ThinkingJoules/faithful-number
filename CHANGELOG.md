@@ -40,6 +40,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `js_string_parse` - JS string parsing (empty string → 0, whitespace trimming)
   - `js_compat` - Umbrella feature enabling all of the above
 
+- **Serialization support**
+  - `serde_str` - String-based serialization for JSON, TOML, etc.
+    - Serializes as `["value"]` or `["value", "transcendental"]`
+    - Preserves approximation metadata on roundtrip
+  - `serde_bin` - Binary serialization via onenum for bincode, etc.
+    - Compact binary format with sortable encoding
+    - Approximation type encoded as suffix byte (preserves sort order)
+  - Note: `serde_str` and `serde_bin` are mutually exclusive
+
+- **Rich formatting (`format` feature)**
+  - `DisplayOptions` - Configurable number display
+  - `ParseOptions` - Configurable number parsing
+  - `RegionalFormat` - US, European, SI, and Indian number formats
+  - `Notation` - Standard, Scientific, and Engineering notation
+  - `Number::format()` and `Number::parse_formatted()` methods
+  - Roundtrip guarantee: `parse_formatted(n.format(opts), opts) == n`
+
 - **New methods on `Number`**
   - `is_neg_zero()` - Check for negative zero
   - `is_zero()` - Check for any zero value
