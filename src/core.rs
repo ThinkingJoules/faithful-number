@@ -289,6 +289,7 @@ impl Number {
 
     // Debug-only unwrap helpers that panic on logic bugs
     #[cfg(debug_assertions)]
+    #[allow(dead_code)]
     pub(crate) fn assert_transcendental(&self) {
         assert!(
             matches!(self.apprx, Some(ApproximationType::Transcendental)),
@@ -297,6 +298,7 @@ impl Number {
     }
 
     #[cfg(debug_assertions)]
+    #[allow(dead_code)]
     pub(crate) fn assert_rational_approximation(&self) {
         assert!(
             matches!(self.apprx, Some(ApproximationType::RationalApproximation)),
@@ -305,6 +307,7 @@ impl Number {
     }
 
     #[cfg(debug_assertions)]
+    #[allow(dead_code)]
     pub(crate) fn assert_exact(&self) {
         assert!(self.apprx.is_none(), "Expected exact value");
     }
@@ -364,13 +367,13 @@ impl Number {
 
                 // Try Decimal demotion (for magnitude overflow cases)
                 // But ONLY if we don't have rational_approximation flag
-                if self.apprx != Some(ApproximationType::RationalApproximation) {
-                    if let Some(dec) = try_bigdecimal_to_decimal(bd) {
-                        return Number {
-                            value: NumericValue::from_decimal(dec),
-                            apprx: self.apprx,
-                        };
-                    }
+                if self.apprx != Some(ApproximationType::RationalApproximation)
+                    && let Some(dec) = try_bigdecimal_to_decimal(bd)
+                {
+                    return Number {
+                        value: NumericValue::from_decimal(dec),
+                        apprx: self.apprx,
+                    };
                 }
 
                 // Keep as BigDecimal
@@ -552,7 +555,7 @@ fn rational_approximation(d: Decimal, max_denom: i64) -> Option<Rational64> {
     let d = d.abs();
 
     // Extract mantissa/scale directly from Decimal
-    let mantissa = d.mantissa() as i128;
+    let mantissa = d.mantissa();
     let scale = d.scale();
     let scale_factor = 10i128.pow(scale);
 
@@ -569,7 +572,7 @@ fn rational_approximation(d: Decimal, max_denom: i64) -> Option<Rational64> {
     let mut p_prev1 = a0;
     let mut q_prev1 = 1i128;
 
-    a = a % b; // Remainder - pure integer op
+    a %= b; // Remainder - pure integer op
 
     let (mut best_n, mut best_d) = (a0, 1i128);
 
@@ -625,7 +628,7 @@ pub(crate) fn try_bigdecimal_to_decimal(bd: &BigDecimal) -> Option<Decimal> {
 
     // Decimal scale is i64, but max is 28
     let scale_i32: i32 = scale.try_into().ok()?;
-    if scale_i32 < 0 || scale_i32 > 28 {
+    if !(0..=28).contains(&scale_i32) {
         return None;
     }
 

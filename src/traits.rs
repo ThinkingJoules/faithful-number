@@ -112,7 +112,7 @@ impl Num for Number {
 
     fn from_str_radix(str: &str, radix: u32) -> Result<Self, Self::FromStrRadixErr> {
         // JavaScript's parseInt-like behavior
-        if radix < 2 || radix > 36 {
+        if !(2..=36).contains(&radix) {
             return Err(());
         }
 
@@ -139,10 +139,7 @@ impl ToPrimitive for Number {
                 }
             }
             NumericValue::Decimal(d) => d.to_i64(),
-            NumericValue::BigDecimal(bd) => {
-                use bigdecimal::ToPrimitive;
-                bd.to_i64()
-            }
+            NumericValue::BigDecimal(bd) => bd.to_i64(),
             NumericValue::NegativeZero => Some(0),
             _ => None,
         }
@@ -158,10 +155,7 @@ impl ToPrimitive for Number {
                 }
             }
             NumericValue::Decimal(d) => d.to_u64(),
-            NumericValue::BigDecimal(bd) => {
-                use bigdecimal::ToPrimitive;
-                bd.to_u64()
-            }
+            NumericValue::BigDecimal(bd) => bd.to_u64(),
             NumericValue::NegativeZero => Some(0),
             _ => None,
         }

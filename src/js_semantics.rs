@@ -87,7 +87,7 @@ impl NumericValue {
                 // Convert rational to integer (truncate)
                 r.to_integer()
                     .to_i32()
-                    .unwrap_or_else(|| (r.to_integer() as i64) as i32)
+                    .unwrap_or_else(|| r.to_integer() as i32)
             }
             NumericValue::Decimal(d) => {
                 // Try direct conversion first (fast path)

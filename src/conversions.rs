@@ -9,11 +9,11 @@ use crate::{Number, NumericValue};
 impl FromStr for NumericValue {
     type Err = ();
 
-    fn from_str(s: &str) -> Result<NumericValue, Self::Err> {
+    fn from_str(#[allow(unused_mut)] mut s: &str) -> Result<NumericValue, Self::Err> {
         #[cfg(feature = "js_string_parse")]
-        let s = s.trim(); // JS trims whitespace
-        #[cfg(not(feature = "js_string_parse"))]
-        let s = s; // Don't trim by default
+        {
+            s = s.trim(); // JS trims whitespace
+        }
 
         // Handle special string values
         match s {
@@ -177,11 +177,11 @@ impl TryFrom<NumericValue> for Decimal {
 impl FromStr for Number {
     type Err = ();
 
-    fn from_str(s: &str) -> Result<Number, Self::Err> {
+    fn from_str(#[allow(unused_mut)] mut s: &str) -> Result<Number, Self::Err> {
         #[cfg(feature = "js_string_parse")]
-        let s = s.trim(); // JS trims whitespace
-        #[cfg(not(feature = "js_string_parse"))]
-        let s = s; // Don't trim by default
+        {
+            s = s.trim(); // JS trims whitespace
+        }
 
         // Handle special string values
         let value = match s {
@@ -345,10 +345,10 @@ impl From<f64> for Number {
                 let shift = exponent - 52;
                 if shift >= 0 {
                     // multiply numerator by 2^shift
-                    if let Some(shifted) = numerator.checked_shl(shift as u32) {
-                        if let Ok(num_i64) = i64::try_from(shifted) {
-                            return Number::from_rational(Ratio::from_integer(num_i64));
-                        }
+                    if let Some(shifted) = numerator.checked_shl(shift as u32)
+                        && let Ok(num_i64) = i64::try_from(shifted)
+                    {
+                        return Number::from_rational(Ratio::from_integer(num_i64));
                     }
                 } else {
                     // numerator / 2^(-shift)

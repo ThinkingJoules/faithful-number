@@ -433,32 +433,26 @@ impl Mul for NumericValue {
             // Special cases with NegativeZero and Rational
             (NumericValue::Rational(a, _), NumericValue::NegativeZero)
             | (NumericValue::NegativeZero, NumericValue::Rational(a, _)) => {
-                if a.is_zero() {
-                    (NumericValue::NegativeZero, false) // 0 * (-0) = -0
-                } else if *a.numer() > 0 {
-                    (NumericValue::NegativeZero, false) // positive * (-0) = -0
+                if *a.numer() >= 0 {
+                    (NumericValue::NegativeZero, false) // zero or positive * (-0) = -0
                 } else {
                     (NumericValue::ZERO, false) // negative * (-0) = +0
                 }
             }
             (NumericValue::Decimal(a), NumericValue::NegativeZero)
             | (NumericValue::NegativeZero, NumericValue::Decimal(a)) => {
-                if a.is_zero() {
-                    (NumericValue::NegativeZero, false) // 0 * (-0) = -0 in JS
-                } else if a > Decimal::ZERO {
-                    (NumericValue::NegativeZero, false) // positive * (-0) = -0
+                if a >= Decimal::ZERO {
+                    (NumericValue::NegativeZero, false) // zero or positive * (-0) = -0
                 } else {
                     (NumericValue::ZERO, false) // negative * (-0) = +0
                 }
             }
             (NumericValue::BigDecimal(a), NumericValue::NegativeZero)
             | (NumericValue::NegativeZero, NumericValue::BigDecimal(a)) => {
-                if a.is_zero() {
-                    (NumericValue::NegativeZero, false)
-                } else if a.is_positive() {
-                    (NumericValue::NegativeZero, false)
+                if !a.is_negative() {
+                    (NumericValue::NegativeZero, false) // zero or positive * (-0) = -0
                 } else {
-                    (NumericValue::ZERO, false)
+                    (NumericValue::ZERO, false) // negative * (-0) = +0
                 }
             }
             (NumericValue::NegativeZero, NumericValue::NegativeZero) => (NumericValue::ZERO, false), // (-0) * (-0) = +0
@@ -786,18 +780,14 @@ impl Div for NumericValue {
                         //                  = (a_mantissa × 10^b_scale) / (b_mantissa × 10^a_scale)
                         let result_rat = if a_scale >= b_scale {
                             let scale_diff = a_scale - b_scale;
-                            if let Some(factor) = 10i64.checked_pow(scale_diff) {
-                                Some(Ratio::new(a_i64, b_i64 * factor))
-                            } else {
-                                None
-                            }
+                            10i64
+                                .checked_pow(scale_diff)
+                                .map(|factor| Ratio::new(a_i64, b_i64 * factor))
                         } else {
                             let scale_diff = b_scale - a_scale;
-                            if let Some(factor) = 10i64.checked_pow(scale_diff) {
-                                Some(Ratio::new(a_i64 * factor, b_i64))
-                            } else {
-                                None
-                            }
+                            10i64
+                                .checked_pow(scale_diff)
+                                .map(|factor| Ratio::new(a_i64 * factor, b_i64))
                         };
 
                         if let Some(rat) = result_rat {
@@ -1225,15 +1215,12 @@ impl Sub for Number {
         };
 
         // Skip demotion for obviously-large BigDecimals (saves ~20-30ns)
-        match &result.value {
-            NumericValue::BigDecimal(bd) => {
-                use bigdecimal::BigDecimal;
-                const LARGE_THRESHOLD: i64 = i64::MAX / 1000;
-                if bd.abs() > BigDecimal::from(LARGE_THRESHOLD) {
-                    return result; // Too large to demote, skip expensive checks
-                }
+        if let NumericValue::BigDecimal(bd) = &result.value {
+            use bigdecimal::BigDecimal;
+            const LARGE_THRESHOLD: i64 = i64::MAX / 1000;
+            if bd.abs() > BigDecimal::from(LARGE_THRESHOLD) {
+                return result; // Too large to demote, skip expensive checks
             }
-            _ => {}
         }
 
         result.try_demote()
@@ -1268,15 +1255,12 @@ impl Mul for Number {
         };
 
         // Skip demotion for obviously-large BigDecimals (saves ~20-30ns)
-        match &result.value {
-            NumericValue::BigDecimal(bd) => {
-                use bigdecimal::BigDecimal;
-                const LARGE_THRESHOLD: i64 = i64::MAX / 1000;
-                if bd.abs() > BigDecimal::from(LARGE_THRESHOLD) {
-                    return result; // Too large to demote, skip expensive checks
-                }
+        if let NumericValue::BigDecimal(bd) = &result.value {
+            use bigdecimal::BigDecimal;
+            const LARGE_THRESHOLD: i64 = i64::MAX / 1000;
+            if bd.abs() > BigDecimal::from(LARGE_THRESHOLD) {
+                return result; // Too large to demote, skip expensive checks
             }
-            _ => {}
         }
 
         result.try_demote()
@@ -1311,15 +1295,12 @@ impl Div for Number {
         };
 
         // Skip demotion for obviously-large BigDecimals (saves ~20-30ns)
-        match &result.value {
-            NumericValue::BigDecimal(bd) => {
-                use bigdecimal::BigDecimal;
-                const LARGE_THRESHOLD: i64 = i64::MAX / 1000;
-                if bd.abs() > BigDecimal::from(LARGE_THRESHOLD) {
-                    return result; // Too large to demote, skip expensive checks
-                }
+        if let NumericValue::BigDecimal(bd) = &result.value {
+            use bigdecimal::BigDecimal;
+            const LARGE_THRESHOLD: i64 = i64::MAX / 1000;
+            if bd.abs() > BigDecimal::from(LARGE_THRESHOLD) {
+                return result; // Too large to demote, skip expensive checks
             }
-            _ => {}
         }
 
         result.try_demote()

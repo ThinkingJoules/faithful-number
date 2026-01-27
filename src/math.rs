@@ -281,10 +281,10 @@ impl NumericValue {
                         // Use Rational sqrt which preserves exactness for perfect squares
                         return NumericValue::from_rational(base).sqrt();
                     }
-                } else if let NumericValue::Decimal(exp_d) = &exp {
-                    if *exp_d == Decimal::from_str("0.5").unwrap_or(Decimal::ZERO) {
-                        return NumericValue::from_rational(base).sqrt();
-                    }
+                } else if let NumericValue::Decimal(exp_d) = &exp
+                    && *exp_d == Decimal::from_str("0.5").unwrap_or(Decimal::ZERO)
+                {
+                    return NumericValue::from_rational(base).sqrt();
                 }
                 // General case: convert to Decimal
                 let base_decimal = Decimal::from(*base.numer()) / Decimal::from(*base.denom());
@@ -457,7 +457,7 @@ impl NumericValue {
                 // For integer exponents, use repeated multiplication for better precision
                 if exp.fract().is_zero() {
                     let exp_i64 = exp.to_i64().unwrap_or(0);
-                    if exp_i64 >= 0 && exp_i64 <= 1000 {
+                    if (0..=1000).contains(&exp_i64) {
                         // Reasonable range for integer powers
                         let mut result = Decimal::ONE;
                         let mut current_base = base;
@@ -473,13 +473,13 @@ impl NumericValue {
                                         use crate::ops::arithmetic::decimal_to_bigdecimal;
                                         let mut result_bd = decimal_to_bigdecimal(result);
                                         let mut base_bd = decimal_to_bigdecimal(current_base);
-                                        result_bd = result_bd * base_bd.clone();
+                                        result_bd *= base_bd.clone();
                                         current_exp /= 2;
 
                                         // Continue with BigDecimal arithmetic
                                         while current_exp > 0 {
                                             if current_exp % 2 == 1 {
-                                                result_bd = result_bd * base_bd.clone();
+                                                result_bd *= base_bd.clone();
                                             }
                                             base_bd = base_bd.clone() * base_bd.clone();
                                             current_exp /= 2;
@@ -501,7 +501,7 @@ impl NumericValue {
                                     // Continue with BigDecimal arithmetic
                                     while current_exp > 0 {
                                         if current_exp % 2 == 1 {
-                                            result_bd = result_bd * base_bd.clone();
+                                            result_bd *= base_bd.clone();
                                         }
                                         base_bd = base_bd.clone() * base_bd.clone();
                                         current_exp /= 2;
