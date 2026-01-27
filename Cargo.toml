@@ -28,9 +28,10 @@ default = []
 js_nan_equality = []     # NaN == NaN returns true, enables Eq trait
 js_bitwise = []          # Implicit ToInt32 coercion for &, |, ^, <<, >>
 js_string_parse = []     # Empty string -> 0, whitespace trimming
+js_rounding = []         # round() uses "half toward +∞" instead of "half away from zero"
 
 # Umbrella feature
-js_compat = ["js_nan_equality", "js_bitwise", "js_string_parse"]
+js_compat = ["js_nan_equality", "js_bitwise", "js_string_parse", "js_rounding"]
 
 # High precision transcendentals via MPFR
 high_precision = ["rug"]

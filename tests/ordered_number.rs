@@ -123,7 +123,7 @@ fn ordered_number_hashmap_update() {
 
 #[test]
 fn ordered_number_negative_zero() {
-    let zero = OrderedNumber::from(Number::ZERO);
+    let zero = OrderedNumber::from(Number::ZERO());
     let neg_zero = OrderedNumber::from(Number::neg_zero());
 
     // -0 == 0

@@ -13,7 +13,7 @@ use num_traits::{FromPrimitive, Num, One, Signed, ToPrimitive, Zero};
 // num_traits implementations for mathematical operations
 impl Zero for Number {
     fn zero() -> Self {
-        Number::ZERO
+        Number::ZERO()
     }
 
     fn is_zero(&self) -> bool {
@@ -29,7 +29,7 @@ impl Zero for Number {
 
 impl One for Number {
     fn one() -> Self {
-        Number::ONE
+        Number::ONE()
     }
 }
 
@@ -240,8 +240,18 @@ impl Hash for Number {
                     3u8.hash(state);
                     0i64.hash(state);
                 } else {
-                    3u8.hash(state);
-                    d.normalize().hash(state);
+                    // Try to recover as Rational for consistent hashing with Rational values
+                    // e.g., Decimal(0.5) should hash same as Rational(1, 2)
+                    use crate::core::try_decimal_to_rational;
+                    if let Some(r) = try_decimal_to_rational(*d) {
+                        3u8.hash(state);
+                        r.numer().hash(state);
+                        r.denom().hash(state);
+                    } else {
+                        // Can't convert to rational - hash as normalized decimal string
+                        3u8.hash(state);
+                        d.normalize().hash(state);
+                    }
                 }
             }
             NumericValue::BigDecimal(bd) => {
@@ -578,7 +588,7 @@ impl Ord for Number {
 // JavaScript doesn't have a "default" number, but 0 is reasonable
 impl Default for Number {
     fn default() -> Self {
-        Number::ZERO
+        Number::ZERO()
     }
 }
 

@@ -255,7 +255,7 @@ impl CombinatorialTest {
     /// Test identity: a + 0 == a
     #[track_caller]
     pub fn assert_additive_identity(&self) -> &Self {
-        let zero = Number::ZERO;
+        let zero = Number::ZERO();
         for (label, num) in &self.operands {
             let result = num.clone() + zero.clone();
             assert_eq!(
@@ -270,7 +270,7 @@ impl CombinatorialTest {
     /// Test identity: a * 1 == a
     #[track_caller]
     pub fn assert_multiplicative_identity(&self) -> &Self {
-        let one = Number::ONE;
+        let one = Number::ONE();
         for (label, num) in &self.operands {
             let result = num.clone() * one.clone();
             assert_eq!(
@@ -285,7 +285,7 @@ impl CombinatorialTest {
     /// Test inverse: a + (-a) == 0
     #[track_caller]
     pub fn assert_additive_inverse(&self) -> &Self {
-        let zero = Number::ZERO;
+        let zero = Number::ZERO();
         for (label, num) in &self.operands {
             if num.is_finite() {
                 let result = num.clone() + (-num.clone());
@@ -302,10 +302,10 @@ impl CombinatorialTest {
     /// Test inverse: a * (1/a) == 1 (for non-zero)
     #[track_caller]
     pub fn assert_multiplicative_inverse(&self) -> &Self {
-        let one = Number::ONE;
+        let one = Number::ONE();
         for (label, num) in &self.operands {
-            if num.is_finite() && *num != Number::ZERO {
-                let result = num.clone() * (Number::ONE / num.clone());
+            if num.is_finite() && *num != Number::ZERO() {
+                let result = num.clone() * (Number::ONE() / num.clone());
                 assert_eq!(
                     result, one,
                     "[{}] Multiplicative inverse failed for {}: {} * (1/{})",

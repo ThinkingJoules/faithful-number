@@ -285,7 +285,7 @@ mod bin_impl {
                 SpecialValue::PositiveInfinity => Number::POSITIVE_INFINITY,
                 SpecialValue::NegativeInfinity => Number::NEGATIVE_INFINITY,
                 SpecialValue::NegativeZero => Number::neg_zero(),
-                SpecialValue::PositiveZero => Number::ZERO,
+                SpecialValue::PositiveZero => Number::ZERO(),
             };
         }
 

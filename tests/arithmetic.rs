@@ -40,7 +40,7 @@ fn test_rational_subtraction() {
     );
 
     ArithmeticTestCase::new("1/2 - 1/2", rational!(1, 2), rational!(1, 2)).assert_sub(
-        Number::ZERO,
+        Number::ZERO(),
         "Rational",
         exact(),
     );
@@ -55,7 +55,7 @@ fn test_rational_multiplication() {
     );
 
     ArithmeticTestCase::new("2/3 * 3/2", rational!(2, 3), rational!(3, 2)).assert_mul(
-        Number::ONE,
+        Number::ONE(),
         "Rational",
         exact(),
     );
@@ -70,7 +70,7 @@ fn test_rational_division() {
     );
 
     ArithmeticTestCase::new("3/7 ÷ 3/7", rational!(3, 7), rational!(3, 7)).assert_div(
-        Number::ONE,
+        Number::ONE(),
         "Rational",
         exact(),
     );
@@ -258,7 +258,7 @@ fn test_infinity_arithmetic() {
         exact(),
     );
 
-    ArithmeticTestCase::new("inf * 0", inf.clone(), Number::ZERO).assert_mul(
+    ArithmeticTestCase::new("inf * 0", inf.clone(), Number::ZERO()).assert_mul(
         Number::nan(),
         "NaN",
         exact(),
@@ -290,19 +290,19 @@ fn test_nan_arithmetic() {
 
 #[test]
 fn test_division_by_zero() {
-    ArithmeticTestCase::new("5 ÷ 0", Number::from(5), Number::ZERO).assert_div(
+    ArithmeticTestCase::new("5 ÷ 0", Number::from(5), Number::ZERO()).assert_div(
         Number::infinity(),
         "PositiveInfinity",
         exact(),
     );
 
-    ArithmeticTestCase::new("-5 ÷ 0", Number::from(-5), Number::ZERO).assert_div(
+    ArithmeticTestCase::new("-5 ÷ 0", Number::from(-5), Number::ZERO()).assert_div(
         Number::neg_infinity(),
         "NegativeInfinity",
         exact(),
     );
 
-    ArithmeticTestCase::new("0 ÷ 0", Number::ZERO, Number::ZERO).assert_div(
+    ArithmeticTestCase::new("0 ÷ 0", Number::ZERO(), Number::ZERO()).assert_div(
         Number::nan(),
         "NaN",
         exact(),
@@ -313,7 +313,7 @@ fn test_division_by_zero() {
 fn test_negative_zero() {
     let neg_zero = Number::neg_zero();
 
-    ArithmeticTestCase::new("-0 * 1", neg_zero.clone(), Number::ONE).assert_mul(
+    ArithmeticTestCase::new("-0 * 1", neg_zero.clone(), Number::ONE()).assert_mul(
         neg_zero.clone(),
         "NegativeZero",
         exact(),

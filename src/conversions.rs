@@ -22,7 +22,7 @@ impl FromStr for NumericValue {
             "-Infinity" => Ok(NumericValue::NegativeInfinity),
             "-0" => Ok(NumericValue::NegativeZero),
             #[cfg(feature = "js_string_parse")]
-            "" => Ok(NumericValue::ZERO), // Empty string converts to 0 in JS
+            "" => Ok(NumericValue::zero()), // Empty string converts to 0 in JS
             #[cfg(not(feature = "js_string_parse"))]
             "" => Err(()), // Empty string is an error by default
             _ => {
@@ -69,7 +69,7 @@ impl From<f64> for NumericValue {
             if f.is_sign_negative() {
                 NumericValue::NegativeZero
             } else {
-                NumericValue::ZERO
+                NumericValue::zero()
             }
         } else {
             // Convert f64 to Decimal - this might lose precision for very large numbers
@@ -190,13 +190,14 @@ impl FromStr for Number {
             "-Infinity" => NumericValue::NegativeInfinity,
             "-0" => NumericValue::NegativeZero,
             #[cfg(feature = "js_string_parse")]
-            "" => NumericValue::ZERO, // Empty string converts to 0 in JS
+            "" => NumericValue::zero(), // Empty string converts to 0 in JS
             #[cfg(not(feature = "js_string_parse"))]
             "" => return Err(()), // Empty string is an error by default
             _ => {
-                // Try to parse as Decimal first
+                // Try to parse as Decimal first, then attempt rational recovery
                 if let Ok(d) = Decimal::from_str(s) {
-                    NumericValue::Decimal(d)
+                    // Use from_decimal which attempts rational recovery for terminating decimals
+                    NumericValue::from_decimal(d)
                 } else {
                     // Try to parse as BigDecimal for very large numbers
                     use bigdecimal::BigDecimal;
@@ -321,7 +322,7 @@ impl From<f64> for Number {
             if f.is_sign_negative() {
                 NumericValue::NegativeZero
             } else {
-                NumericValue::ZERO
+                NumericValue::zero()
             }
         } else {
             // Try to extract rational representation from f64

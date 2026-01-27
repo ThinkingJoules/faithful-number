@@ -21,7 +21,7 @@ pub mod format;
 mod serde_impl;
 
 use crate::core::NumericValue;
-pub use crate::core::{ApproximationType, Number};
+pub use crate::core::{ApproximationType, Number, NumberInfo};
 pub use crate::ordered::OrderedNumber;
 pub use crate::precision::{get_default_precision, set_default_precision};
 

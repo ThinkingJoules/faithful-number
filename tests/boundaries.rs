@@ -100,7 +100,7 @@ fn test_very_large_numbers_use_bigdecimal() {
     let huge = Number::from(i64::MAX) * Number::from(i64::MAX);
 
     // Should still compute without panic
-    let result = huge.clone() + Number::ONE;
+    let result = huge.clone() + Number::ONE();
     assert!(result.is_finite());
     assert_eq!(result.representation(), "BigDecimal");
 }

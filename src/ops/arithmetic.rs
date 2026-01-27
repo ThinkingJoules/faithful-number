@@ -12,6 +12,18 @@ pub(crate) fn decimal_to_bigdecimal(d: Decimal) -> BigDecimal {
     let scale = d.scale() as i64;
     BigDecimal::new(mantissa.into(), scale)
 }
+
+/// Check if BigDecimal division truncated by multiplying back and comparing.
+/// Returns true if the division was truncated (i.e., result * divisor != dividend)
+#[inline]
+fn bigdecimal_division_truncated(
+    dividend: &BigDecimal,
+    divisor: &BigDecimal,
+    result: &BigDecimal,
+) -> bool {
+    let reconstructed = result * divisor;
+    &reconstructed != dividend
+}
 impl Add for NumericValue {
     type Output = (NumericValue, bool);
     fn add(self, rhs: NumericValue) -> (NumericValue, bool) {
@@ -291,7 +303,9 @@ impl Sub for NumericValue {
             (NumericValue::NegativeZero, NumericValue::BigDecimal(b)) => {
                 (NumericValue::BigDecimal(-b), false)
             }
-            (NumericValue::NegativeZero, NumericValue::NegativeZero) => (NumericValue::ZERO, false), // (-0) - (-0) = +0
+            (NumericValue::NegativeZero, NumericValue::NegativeZero) => {
+                (NumericValue::zero(), false)
+            } // (-0) - (-0) = +0
 
             // BigDecimal operations
             (NumericValue::BigDecimal(a), NumericValue::BigDecimal(b)) => {
@@ -436,7 +450,7 @@ impl Mul for NumericValue {
                 if *a.numer() >= 0 {
                     (NumericValue::NegativeZero, false) // zero or positive * (-0) = -0
                 } else {
-                    (NumericValue::ZERO, false) // negative * (-0) = +0
+                    (NumericValue::zero(), false) // negative * (-0) = +0
                 }
             }
             (NumericValue::Decimal(a), NumericValue::NegativeZero)
@@ -444,7 +458,7 @@ impl Mul for NumericValue {
                 if a >= Decimal::ZERO {
                     (NumericValue::NegativeZero, false) // zero or positive * (-0) = -0
                 } else {
-                    (NumericValue::ZERO, false) // negative * (-0) = +0
+                    (NumericValue::zero(), false) // negative * (-0) = +0
                 }
             }
             (NumericValue::BigDecimal(a), NumericValue::NegativeZero)
@@ -452,10 +466,12 @@ impl Mul for NumericValue {
                 if !a.is_negative() {
                     (NumericValue::NegativeZero, false) // zero or positive * (-0) = -0
                 } else {
-                    (NumericValue::ZERO, false) // negative * (-0) = +0
+                    (NumericValue::zero(), false) // negative * (-0) = +0
                 }
             }
-            (NumericValue::NegativeZero, NumericValue::NegativeZero) => (NumericValue::ZERO, false), // (-0) * (-0) = +0
+            (NumericValue::NegativeZero, NumericValue::NegativeZero) => {
+                (NumericValue::zero(), false)
+            } // (-0) * (-0) = +0
 
             (NumericValue::NaN, _) | (_, NumericValue::NaN) => (NumericValue::NaN, false),
 
@@ -575,7 +591,11 @@ impl Div for NumericValue {
                         (NumericValue::NegativeInfinity, false) // negative/0 = -∞
                     }
                 } else if let Some(result) = a.checked_div(&b) {
-                    let is_term = a_term && b_term; // Cached!
+                    // Must recompute terminating flag based on RESULT denominator
+                    // Dividing terminating rationals can produce non-terminating results
+                    // e.g., 1/1 / 3/1 = 1/3 (non-terminating)
+                    use crate::core::is_terminating_decimal;
+                    let is_term = is_terminating_decimal(*result.numer(), *result.denom());
                     (NumericValue::Rational(result, is_term), false)
                 } else {
                     // Use cached terminating flags - no recomputation needed!
@@ -690,7 +710,9 @@ impl Div for NumericValue {
                     let numer_bd = BigDecimal::from(BigInt::from(*a.numer()));
                     let denom_bd = BigDecimal::from(BigInt::from(*a.denom()));
                     let a_bd = numer_bd / denom_bd;
-                    (NumericValue::BigDecimal(a_bd / b), false)
+                    let result = &a_bd / &b;
+                    let truncated = bigdecimal_division_truncated(&a_bd, &b, &result);
+                    (NumericValue::BigDecimal(result), truncated)
                 }
             }
             // BigDecimal / Rational: graduate Rational to BigDecimal
@@ -708,7 +730,9 @@ impl Div for NumericValue {
                     let numer_bd = BigDecimal::from(BigInt::from(*b.numer()));
                     let denom_bd = BigDecimal::from(BigInt::from(*b.denom()));
                     let b_bd = numer_bd / denom_bd;
-                    (NumericValue::BigDecimal(a / b_bd), false)
+                    let result = &a / &b_bd;
+                    let truncated = bigdecimal_division_truncated(&a, &b_bd, &result);
+                    (NumericValue::BigDecimal(result), truncated)
                 }
             }
 
@@ -728,7 +752,7 @@ impl Div for NumericValue {
                 } else if *b.numer() > 0 {
                     (NumericValue::NegativeZero, false) // (-0)/positive = -0
                 } else {
-                    (NumericValue::ZERO, false) // (-0)/negative = +0
+                    (NumericValue::zero(), false) // (-0)/negative = +0
                 }
             }
             // Special cases with NegativeZero and BigDecimal
@@ -747,7 +771,7 @@ impl Div for NumericValue {
                 } else if b.is_positive() {
                     (NumericValue::NegativeZero, false) // (-0)/positive = -0
                 } else {
-                    (NumericValue::ZERO, false) // (-0)/negative = +0
+                    (NumericValue::zero(), false) // (-0)/negative = +0
                 }
             }
 
@@ -827,7 +851,9 @@ impl Div for NumericValue {
                         (NumericValue::NegativeInfinity, false)
                     }
                 } else {
-                    (NumericValue::BigDecimal(a / b), false)
+                    let result = &a / &b;
+                    let truncated = bigdecimal_division_truncated(&a, &b, &result);
+                    (NumericValue::BigDecimal(result), truncated)
                 }
             }
             // Mixed BigDecimal/Decimal division
@@ -842,7 +868,9 @@ impl Div for NumericValue {
                     }
                 } else {
                     let b_bd = decimal_to_bigdecimal(b);
-                    (NumericValue::BigDecimal(a / b_bd), false)
+                    let result = &a / &b_bd;
+                    let truncated = bigdecimal_division_truncated(&a, &b_bd, &result);
+                    (NumericValue::BigDecimal(result), truncated)
                 }
             }
             (NumericValue::Decimal(a), NumericValue::BigDecimal(b)) => {
@@ -856,7 +884,9 @@ impl Div for NumericValue {
                     }
                 } else {
                     let a_bd = decimal_to_bigdecimal(a);
-                    (NumericValue::BigDecimal(a_bd / b), false)
+                    let result = &a_bd / &b;
+                    let truncated = bigdecimal_division_truncated(&a_bd, &b, &result);
+                    (NumericValue::BigDecimal(result), truncated)
                 }
             }
             (NumericValue::Decimal(a), NumericValue::NegativeZero) => {
@@ -874,7 +904,7 @@ impl Div for NumericValue {
                 } else if b > Decimal::ZERO {
                     (NumericValue::NegativeZero, false) // (-0)/positive = -0
                 } else {
-                    (NumericValue::ZERO, false) // (-0)/negative = +0
+                    (NumericValue::zero(), false) // (-0)/negative = +0
                 }
             }
             (NumericValue::NegativeZero, NumericValue::NegativeZero) => (NumericValue::NaN, false), // (-0)/(-0) = NaN
@@ -962,138 +992,172 @@ impl Div for NumericValue {
 }
 
 impl Rem for NumericValue {
-    type Output = NumericValue;
-    fn rem(self, rhs: NumericValue) -> NumericValue {
+    type Output = (NumericValue, bool);
+    fn rem(self, rhs: NumericValue) -> (NumericValue, bool) {
         match (self, rhs) {
-            // Rational % Rational: convert to Decimal for operation
-            (NumericValue::Rational(a, _), NumericValue::Rational(b, _)) => {
+            // Rational % Rational: exact computation
+            // Formula: (a/b) % (c/d) = ((a*d) % (b*c)) / (b*d)
+            (NumericValue::Rational(a, a_term), NumericValue::Rational(b, b_term)) => {
                 if b.is_zero() {
-                    NumericValue::NaN
+                    (NumericValue::NaN, false)
                 } else {
-                    let a_dec = Decimal::from(*a.numer()) / Decimal::from(*a.denom());
-                    let b_dec = Decimal::from(*b.numer()) / Decimal::from(*b.denom());
-                    NumericValue::Decimal(a_dec % b_dec)
+                    // Try exact rational modulo with checked arithmetic
+                    let a_numer = *a.numer();
+                    let a_denom = *a.denom();
+                    let b_numer = *b.numer();
+                    let b_denom = *b.denom();
+
+                    // Compute: ((a_numer * b_denom) % (a_denom * b_numer)) / (a_denom * b_denom)
+                    let ad = a_numer.checked_mul(b_denom);
+                    let bc = a_denom.checked_mul(b_numer);
+                    let bd = a_denom.checked_mul(b_denom);
+
+                    if let (Some(ad), Some(bc), Some(bd)) = (ad, bc, bd) {
+                        // All multiplications succeeded, compute the modulo
+                        // Note: For negative numbers, Rust's % follows truncated division semantics
+                        // which matches JavaScript's behavior
+                        let remainder = ad % bc;
+                        use num_rational::Ratio;
+                        let result = Ratio::new(remainder, bd);
+                        let is_term = a_term && b_term;
+                        (NumericValue::Rational(result, is_term), false)
+                    } else {
+                        // Overflow - promote to BigDecimal
+                        use bigdecimal::{BigDecimal, num_bigint::BigInt};
+                        let a_bd = BigDecimal::from(BigInt::from(a_numer))
+                            / BigDecimal::from(BigInt::from(a_denom));
+                        let b_bd = BigDecimal::from(BigInt::from(b_numer))
+                            / BigDecimal::from(BigInt::from(b_denom));
+                        // Flag as approximation since we lost exact rational representation
+                        (NumericValue::BigDecimal(a_bd % b_bd), true)
+                    }
                 }
             }
             (NumericValue::Rational(a, _), NumericValue::Decimal(b)) => {
                 if b.is_zero() {
-                    NumericValue::NaN
+                    (NumericValue::NaN, false)
                 } else {
                     let a_dec = Decimal::from(*a.numer()) / Decimal::from(*a.denom());
-                    NumericValue::Decimal(a_dec % b)
+                    (NumericValue::Decimal(a_dec % b), false)
                 }
             }
             (NumericValue::Decimal(a), NumericValue::Rational(b, _)) => {
                 if b.is_zero() {
-                    NumericValue::NaN
+                    (NumericValue::NaN, false)
                 } else {
                     let b_dec = Decimal::from(*b.numer()) / Decimal::from(*b.denom());
-                    NumericValue::Decimal(a % b_dec)
+                    (NumericValue::Decimal(a % b_dec), false)
                 }
             }
             (NumericValue::Rational(a, _), NumericValue::BigDecimal(b)) => {
                 if b.is_zero() {
-                    NumericValue::NaN
+                    (NumericValue::NaN, false)
                 } else {
                     use bigdecimal::{BigDecimal, num_bigint::BigInt};
                     let numer_bd = BigDecimal::from(BigInt::from(*a.numer()));
                     let denom_bd = BigDecimal::from(BigInt::from(*a.denom()));
                     let a_bd = numer_bd / denom_bd;
-                    NumericValue::BigDecimal(a_bd % b)
+                    (NumericValue::BigDecimal(a_bd % b), false)
                 }
             }
             (NumericValue::BigDecimal(a), NumericValue::Rational(b, _)) => {
                 if b.is_zero() {
-                    NumericValue::NaN
+                    (NumericValue::NaN, false)
                 } else {
                     use bigdecimal::{BigDecimal, num_bigint::BigInt};
                     let numer_bd = BigDecimal::from(BigInt::from(*b.numer()));
                     let denom_bd = BigDecimal::from(BigInt::from(*b.denom()));
                     let b_bd = numer_bd / denom_bd;
-                    NumericValue::BigDecimal(a % b_bd)
+                    (NumericValue::BigDecimal(a % b_bd), false)
                 }
             }
-            (NumericValue::Rational(_a, _), NumericValue::NegativeZero) => NumericValue::NaN,
+            (NumericValue::Rational(_a, _), NumericValue::NegativeZero) => {
+                (NumericValue::NaN, false)
+            }
             (NumericValue::NegativeZero, NumericValue::Rational(b, _)) => {
                 if b.is_zero() {
-                    NumericValue::NaN
+                    (NumericValue::NaN, false)
                 } else {
-                    NumericValue::NegativeZero
+                    (NumericValue::NegativeZero, false)
                 }
             }
 
             // BigDecimal % operations
             (NumericValue::BigDecimal(a), NumericValue::BigDecimal(b)) => {
                 if b.is_zero() {
-                    NumericValue::NaN
+                    (NumericValue::NaN, false)
                 } else {
-                    NumericValue::BigDecimal(a % b)
+                    (NumericValue::BigDecimal(a % b), false)
                 }
             }
             (NumericValue::BigDecimal(a), NumericValue::Decimal(b)) => {
                 if b.is_zero() {
-                    NumericValue::NaN
+                    (NumericValue::NaN, false)
                 } else {
                     let b_bd = decimal_to_bigdecimal(b);
-                    NumericValue::BigDecimal(a % b_bd)
+                    (NumericValue::BigDecimal(a % b_bd), false)
                 }
             }
             (NumericValue::Decimal(a), NumericValue::BigDecimal(b)) => {
                 if b.is_zero() {
-                    NumericValue::NaN
+                    (NumericValue::NaN, false)
                 } else {
                     let a_bd = decimal_to_bigdecimal(a);
-                    NumericValue::BigDecimal(a_bd % b)
+                    (NumericValue::BigDecimal(a_bd % b), false)
                 }
             }
-            (NumericValue::BigDecimal(_), NumericValue::NegativeZero) => NumericValue::NaN,
+            (NumericValue::BigDecimal(_), NumericValue::NegativeZero) => (NumericValue::NaN, false),
             (NumericValue::NegativeZero, NumericValue::BigDecimal(b)) => {
                 if b.is_zero() {
-                    NumericValue::NaN
+                    (NumericValue::NaN, false)
                 } else {
-                    NumericValue::NegativeZero
+                    (NumericValue::NegativeZero, false)
                 }
             }
 
             // Decimal % Decimal
             (NumericValue::Decimal(a), NumericValue::Decimal(b)) => {
                 if b.is_zero() {
-                    NumericValue::NaN // x % 0 = NaN
+                    (NumericValue::NaN, false) // x % 0 = NaN
                 } else {
-                    NumericValue::Decimal(a % b)
+                    (NumericValue::Decimal(a % b), false)
                 }
             }
-            (NumericValue::Decimal(_), NumericValue::NegativeZero) => NumericValue::NaN, // x % (-0) = NaN
+            (NumericValue::Decimal(_), NumericValue::NegativeZero) => {
+                (NumericValue::NaN, false) // x % (-0) = NaN
+            }
             (NumericValue::NegativeZero, NumericValue::Decimal(b)) => {
                 if b.is_zero() {
-                    NumericValue::NaN // (-0) % 0 = NaN
+                    (NumericValue::NaN, false) // (-0) % 0 = NaN
                 } else {
-                    NumericValue::NegativeZero // (-0) % x = -0
+                    (NumericValue::NegativeZero, false) // (-0) % x = -0
                 }
             }
-            (NumericValue::NegativeZero, NumericValue::NegativeZero) => NumericValue::NaN, // (-0) % (-0) = NaN
+            (NumericValue::NegativeZero, NumericValue::NegativeZero) => {
+                (NumericValue::NaN, false) // (-0) % (-0) = NaN
+            }
 
-            (NumericValue::NaN, _) | (_, NumericValue::NaN) => NumericValue::NaN,
+            (NumericValue::NaN, _) | (_, NumericValue::NaN) => (NumericValue::NaN, false),
 
             // ∞ % anything = NaN, anything % ∞ = the anything
             (NumericValue::PositiveInfinity, _) | (NumericValue::NegativeInfinity, _) => {
-                NumericValue::NaN
+                (NumericValue::NaN, false)
             }
             (NumericValue::Rational(a, a_term), NumericValue::PositiveInfinity)
             | (NumericValue::Rational(a, a_term), NumericValue::NegativeInfinity) => {
-                NumericValue::Rational(a, a_term)
+                (NumericValue::Rational(a, a_term), false)
             }
             (NumericValue::Decimal(a), NumericValue::PositiveInfinity)
             | (NumericValue::Decimal(a), NumericValue::NegativeInfinity) => {
-                NumericValue::Decimal(a)
+                (NumericValue::Decimal(a), false)
             }
             (NumericValue::BigDecimal(a), NumericValue::PositiveInfinity)
             | (NumericValue::BigDecimal(a), NumericValue::NegativeInfinity) => {
-                NumericValue::BigDecimal(a)
+                (NumericValue::BigDecimal(a), false)
             }
             (NumericValue::NegativeZero, NumericValue::PositiveInfinity)
             | (NumericValue::NegativeZero, NumericValue::NegativeInfinity) => {
-                NumericValue::NegativeZero
+                (NumericValue::NegativeZero, false)
             }
         }
     }
@@ -1110,7 +1174,7 @@ impl Neg for NumericValue {
                     NumericValue::Decimal(-d)
                 }
             }
-            NumericValue::NegativeZero => NumericValue::ZERO, // -(-0) = +0
+            NumericValue::NegativeZero => NumericValue::zero(), // -(-0) = +0
             NumericValue::NaN => NumericValue::NaN,
             NumericValue::PositiveInfinity => NumericValue::NegativeInfinity,
             NumericValue::NegativeInfinity => NumericValue::PositiveInfinity,
@@ -1310,24 +1374,27 @@ impl Div for Number {
 impl Rem for Number {
     type Output = Number;
     fn rem(self, rhs: Number) -> Number {
-        use crate::ApproximationType;
-
         // Check flags BEFORE moving
         let self_trans = self.is_transcendental();
         let rhs_trans = rhs.is_transcendental();
         let self_rat_approx = self.is_rational_approximation();
         let rhs_rat_approx = rhs.is_rational_approximation();
 
-        let apprx = if self_trans || rhs_trans {
-            Some(ApproximationType::Transcendental)
-        } else if self_rat_approx || rhs_rat_approx {
-            Some(ApproximationType::RationalApproximation)
-        } else {
-            None
-        };
+        // Compute ONCE - lower layer returns flag for overflow
+        let (result_value, rat_overflow) = self.value % rhs.value;
+
+        // Combine flags using helper
+        let apprx = combine_approximation_flags(
+            self_trans,
+            rhs_trans,
+            self_rat_approx,
+            rhs_rat_approx,
+            rat_overflow,
+            &result_value,
+        );
 
         let result = Number {
-            value: self.value % rhs.value,
+            value: result_value,
             apprx,
         };
 

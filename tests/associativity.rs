@@ -105,9 +105,9 @@ fn large_denominator_arithmetic() {
 #[test]
 fn multiplication_by_zero() {
     let large = Number::from(i64::MAX);
-    let zero = Number::ZERO;
+    let zero = Number::ZERO();
 
-    assert_eq!(large * zero, Number::ZERO);
+    assert_eq!(large * zero, Number::ZERO());
 }
 
 #[test]
@@ -120,8 +120,8 @@ fn additive_identity() {
     ];
 
     for v in values {
-        assert_eq!(v.clone() + Number::ZERO, v);
-        assert_eq!(Number::ZERO + v.clone(), v);
+        assert_eq!(v.clone() + Number::ZERO(), v);
+        assert_eq!(Number::ZERO() + v.clone(), v);
     }
 }
 

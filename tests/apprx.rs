@@ -164,11 +164,11 @@ fn test_approximation_does_not_revert() {
 
     // Even if we multiply by 0 (giving exact 0), we might want to preserve the flag
     // This is a design decision - test both possibilities
-    let result = transcendental * Number::ZERO;
+    let result = transcendental * Number::ZERO();
 
     // Either stays transcendental OR becomes exact 0
     // Document your choice here
-    assert_eq!(result, Number::ZERO);
+    assert_eq!(result, Number::ZERO());
     // assert!(result.is_transcendental()); // OR
     // assert!(result.is_exact()); // depending on your semantics
 }

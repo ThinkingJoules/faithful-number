@@ -11,7 +11,7 @@ fn neg_zero_identity() {
 #[test]
 fn neg_zero_plus_zero() {
     // (-0) + 0 = 0 (positive zero)
-    let result = Number::neg_zero() + Number::ZERO;
+    let result = Number::neg_zero() + Number::ZERO();
     assert!(!result.is_neg_zero());
     assert!(result.is_zero());
 }
@@ -19,7 +19,7 @@ fn neg_zero_plus_zero() {
 #[test]
 fn zero_plus_neg_zero() {
     // 0 + (-0) = 0 (positive zero per IEEE)
-    let result = Number::ZERO + Number::neg_zero();
+    let result = Number::ZERO() + Number::neg_zero();
     assert!(!result.is_neg_zero());
 }
 
@@ -71,7 +71,7 @@ fn neg_one_divided_by_neg_zero() {
 fn neg_zero_equals_zero() {
     // -0 == 0 per IEEE
     let neg_zero = Number::neg_zero();
-    let zero = Number::ZERO;
+    let zero = Number::ZERO();
 
     assert_eq!(neg_zero, zero);
 }
@@ -90,7 +90,7 @@ fn neg_zero_is_falsy() {
 #[test]
 fn neg_zero_subtraction() {
     // 0 - 0 = 0 (not -0)
-    let result = Number::ZERO - Number::ZERO;
+    let result = Number::ZERO() - Number::ZERO();
     assert!(!result.is_neg_zero());
 }
 

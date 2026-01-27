@@ -2,7 +2,7 @@ use crate::{Number, NumericValue};
 use num_rational::Ratio;
 use rust_decimal::Decimal;
 
-use num_traits::{FromPrimitive, Signed, ToPrimitive, Zero};
+use num_traits::{Signed, ToPrimitive, Zero};
 use std::str::FromStr;
 
 #[cfg(feature = "high_precision")]
@@ -52,7 +52,7 @@ impl NumericValue {
             NumericValue::Rational(r, _) => NumericValue::from_rational(r.abs()),
             NumericValue::Decimal(d) => NumericValue::Decimal(d.abs()),
             NumericValue::BigDecimal(bd) => NumericValue::BigDecimal(bd.abs()),
-            NumericValue::NegativeZero => NumericValue::ZERO, // abs(-0) = +0
+            NumericValue::NegativeZero => NumericValue::zero(), // abs(-0) = +0
             NumericValue::NaN => NumericValue::NaN,
             NumericValue::PositiveInfinity => NumericValue::PositiveInfinity,
             NumericValue::NegativeInfinity => NumericValue::PositiveInfinity,
@@ -61,11 +61,24 @@ impl NumericValue {
 
     pub fn floor(self) -> NumericValue {
         match self {
-            NumericValue::Rational(_, _)
-            | NumericValue::Decimal(_)
-            | NumericValue::BigDecimal(_) => {
-                let f = self.to_f64();
-                NumericValue::from(f.floor())
+            NumericValue::Rational(r, _) => {
+                // Exact floor for rationals: floor(a/b)
+                // Use div_floor which rounds toward negative infinity
+                let numer = *r.numer();
+                let denom = *r.denom();
+                let floored = numer.div_euclid(denom);
+                NumericValue::from_rational(Ratio::from_integer(floored))
+            }
+            NumericValue::Decimal(d) => NumericValue::Decimal(d.floor()),
+            NumericValue::BigDecimal(bd) => {
+                use bigdecimal::BigDecimal;
+                // BigDecimal floor: truncate toward negative infinity
+                let truncated = bd.with_scale(0);
+                if bd.is_negative() && truncated != bd {
+                    NumericValue::BigDecimal(truncated - BigDecimal::from(1))
+                } else {
+                    NumericValue::BigDecimal(truncated)
+                }
             }
             NumericValue::NegativeZero => NumericValue::NegativeZero, // floor(-0) = -0
             NumericValue::NaN => NumericValue::NaN,
@@ -76,11 +89,25 @@ impl NumericValue {
 
     pub fn ceil(self) -> NumericValue {
         match self {
-            NumericValue::Rational(_, _)
-            | NumericValue::Decimal(_)
-            | NumericValue::BigDecimal(_) => {
-                let f = self.to_f64();
-                NumericValue::from(f.ceil())
+            NumericValue::Rational(r, _) => {
+                // Exact ceil for rationals: ceil(a/b)
+                // ceil(x) = -floor(-x)
+                let numer = *r.numer();
+                let denom = *r.denom();
+                // For ceil, we compute: -floor(-a/b) = -(-a).div_euclid(b)
+                let ceiled = (-numer).div_euclid(denom).saturating_neg();
+                NumericValue::from_rational(Ratio::from_integer(ceiled))
+            }
+            NumericValue::Decimal(d) => NumericValue::Decimal(d.ceil()),
+            NumericValue::BigDecimal(bd) => {
+                use bigdecimal::BigDecimal;
+                // BigDecimal ceil: truncate toward positive infinity
+                let truncated = bd.with_scale(0);
+                if bd.is_positive() && truncated != bd {
+                    NumericValue::BigDecimal(truncated + BigDecimal::from(1))
+                } else {
+                    NumericValue::BigDecimal(truncated)
+                }
             }
             NumericValue::NegativeZero => NumericValue::NegativeZero, // ceil(-0) = -0
             NumericValue::NaN => NumericValue::NaN,
@@ -91,21 +118,53 @@ impl NumericValue {
 
     pub fn round(self) -> NumericValue {
         match self {
-            NumericValue::Rational(_, _)
-            | NumericValue::Decimal(_)
-            | NumericValue::BigDecimal(_) => {
-                // JavaScript round: rounds to nearest integer, ties away from zero
-                // For -3.5, should round to -3 (away from zero)
-                let f = self.to_f64();
-                let rounded = if f >= 0.0 {
-                    (f + 0.5).floor()
-                } else {
-                    // For negative numbers, round ties away from zero
-                    // -3.5 should become -3, not -4
-                    // Use: (f + 0.5).ceil() for negative numbers
-                    (f + 0.5).ceil()
-                };
-                NumericValue::from(rounded)
+            NumericValue::Rational(r, _) => {
+                let numer = *r.numer();
+                let denom = *r.denom();
+
+                #[cfg(feature = "js_rounding")]
+                {
+                    // JS semantics: round half toward positive infinity
+                    // round(1.5) = 2, round(-1.5) = -1
+                    // Formula: floor(x + 0.5) = floor((2*numer + denom) / (2*denom))
+                    let two_numer = numer.saturating_mul(2);
+                    let two_denom = denom.saturating_mul(2);
+                    let rounded = (two_numer + denom).div_euclid(two_denom);
+                    return NumericValue::from_rational(Ratio::from_integer(rounded));
+                }
+
+                #[cfg(not(feature = "js_rounding"))]
+                {
+                    // Mathematical semantics: round half away from zero
+                    // round(1.5) = 2, round(-1.5) = -2
+                    let rounded = if numer >= 0 {
+                        let two_numer = numer.saturating_mul(2);
+                        let two_denom = denom.saturating_mul(2);
+                        (two_numer + denom) / two_denom
+                    } else {
+                        let abs_numer = numer.saturating_neg();
+                        let two_numer = abs_numer.saturating_mul(2);
+                        let two_denom = denom.saturating_mul(2);
+                        -((two_numer + denom) / two_denom)
+                    };
+                    NumericValue::from_rational(Ratio::from_integer(rounded))
+                }
+            }
+            NumericValue::Decimal(d) => {
+                use rust_decimal::RoundingStrategy;
+                #[cfg(feature = "js_rounding")]
+                let strategy = RoundingStrategy::MidpointTowardPositiveInfinity;
+                #[cfg(not(feature = "js_rounding"))]
+                let strategy = RoundingStrategy::MidpointAwayFromZero;
+                NumericValue::Decimal(d.round_dp_with_strategy(0, strategy))
+            }
+            NumericValue::BigDecimal(bd) => {
+                use bigdecimal::RoundingMode;
+                #[cfg(feature = "js_rounding")]
+                let mode = RoundingMode::Ceiling;
+                #[cfg(not(feature = "js_rounding"))]
+                let mode = RoundingMode::HalfUp;
+                NumericValue::BigDecimal(bd.round(0).with_scale_round(0, mode))
             }
             NumericValue::NegativeZero => NumericValue::NegativeZero, // round(-0) = -0
             NumericValue::NaN => NumericValue::NaN,
@@ -264,7 +323,7 @@ impl NumericValue {
                     NumericValue::BigDecimal(bd.sqrt().unwrap_or(bd))
                 }
             }
-            NumericValue::NegativeZero => NumericValue::ZERO, // sqrt(-0) = +0 in JS
+            NumericValue::NegativeZero => NumericValue::zero(), // sqrt(-0) = +0 in JS
             NumericValue::NaN => NumericValue::NaN,
             NumericValue::PositiveInfinity => NumericValue::PositiveInfinity,
             NumericValue::NegativeInfinity => NumericValue::NaN, // sqrt(-Infinity) = NaN
@@ -333,7 +392,7 @@ impl NumericValue {
             }
 
             // Handle NaN cases first
-            (NumericValue::NaN, NumericValue::Decimal(exp)) if exp.is_zero() => NumericValue::ONE, // NaN**0 = 1 in JS
+            (NumericValue::NaN, NumericValue::Decimal(exp)) if exp.is_zero() => NumericValue::one(), // NaN**0 = 1 in JS
             (NumericValue::NaN, _) => NumericValue::NaN,
             (_, NumericValue::NaN) => NumericValue::NaN,
 
@@ -341,24 +400,24 @@ impl NumericValue {
             (NumericValue::Decimal(base), NumericValue::Decimal(exp))
                 if base.is_zero() && exp.is_zero() =>
             {
-                NumericValue::ONE
+                NumericValue::one()
             }
             (NumericValue::NegativeZero, NumericValue::Decimal(exp)) if exp.is_zero() => {
-                NumericValue::ONE
+                NumericValue::one()
             }
             (NumericValue::Decimal(base), NumericValue::NegativeZero) if base.is_zero() => {
-                NumericValue::ONE
+                NumericValue::one()
             }
-            (NumericValue::NegativeZero, NumericValue::NegativeZero) => NumericValue::ONE,
+            (NumericValue::NegativeZero, NumericValue::NegativeZero) => NumericValue::one(),
 
             // Handle zero base cases
             (NumericValue::Decimal(base), NumericValue::Decimal(exp)) if base.is_zero() => {
                 if exp > Decimal::ZERO {
-                    NumericValue::ZERO
+                    NumericValue::zero()
                 } else if exp < Decimal::ZERO {
                     NumericValue::POSITIVE_INFINITY
                 } else {
-                    NumericValue::ONE // 0**0 = 1
+                    NumericValue::one() // 0**0 = 1
                 }
             }
             (NumericValue::NegativeZero, NumericValue::Decimal(exp)) => {
@@ -369,15 +428,15 @@ impl NumericValue {
                         if exp_i64 % 2 == 1 {
                             NumericValue::NegativeZero // (-0)^odd = -0
                         } else {
-                            NumericValue::ZERO // (-0)^even = +0
+                            NumericValue::zero() // (-0)^even = +0
                         }
                     } else {
-                        NumericValue::ZERO // (-0)^fractional = +0
+                        NumericValue::zero() // (-0)^fractional = +0
                     }
                 } else if exp < Decimal::ZERO {
                     NumericValue::NEGATIVE_INFINITY // (-0)^negative = -∞
                 } else {
-                    NumericValue::ONE // already handled above
+                    NumericValue::one() // already handled above
                 }
             }
 
@@ -387,22 +446,22 @@ impl NumericValue {
                 if abs_base > Decimal::ONE {
                     NumericValue::POSITIVE_INFINITY
                 } else if abs_base < Decimal::ONE {
-                    NumericValue::ZERO
+                    NumericValue::zero()
                 } else {
-                    NumericValue::ONE // 1**Infinity = 1
+                    NumericValue::one() // 1**Infinity = 1
                 }
             }
             (NumericValue::Decimal(base), NumericValue::NegativeInfinity) => {
                 let abs_base = base.abs();
                 if abs_base > Decimal::ONE {
-                    NumericValue::ZERO
+                    NumericValue::zero()
                 } else if abs_base < Decimal::ONE {
                     NumericValue::POSITIVE_INFINITY
                 } else {
-                    NumericValue::ONE // 1**(-Infinity) = 1
+                    NumericValue::one() // 1**(-Infinity) = 1
                 }
             }
-            (NumericValue::NegativeZero, NumericValue::PositiveInfinity) => NumericValue::ZERO,
+            (NumericValue::NegativeZero, NumericValue::PositiveInfinity) => NumericValue::zero(),
             (NumericValue::NegativeZero, NumericValue::NegativeInfinity) => {
                 NumericValue::POSITIVE_INFINITY
             }
@@ -412,9 +471,9 @@ impl NumericValue {
                 if exp > Decimal::ZERO {
                     NumericValue::POSITIVE_INFINITY
                 } else if exp < Decimal::ZERO {
-                    NumericValue::ZERO
+                    NumericValue::zero()
                 } else {
-                    NumericValue::ONE // Infinity**0 = 1
+                    NumericValue::one() // Infinity**0 = 1
                 }
             }
             (NumericValue::NegativeInfinity, NumericValue::Decimal(exp)) => {
@@ -431,9 +490,9 @@ impl NumericValue {
                         NumericValue::NaN // Fractional exponent of negative number
                     }
                 } else if exp < Decimal::ZERO {
-                    NumericValue::ZERO
+                    NumericValue::zero()
                 } else {
-                    NumericValue::ONE // (-Infinity)**0 = 1
+                    NumericValue::one() // (-Infinity)**0 = 1
                 }
             }
 
@@ -441,11 +500,15 @@ impl NumericValue {
             (NumericValue::PositiveInfinity, NumericValue::PositiveInfinity) => {
                 NumericValue::POSITIVE_INFINITY
             }
-            (NumericValue::PositiveInfinity, NumericValue::NegativeInfinity) => NumericValue::ZERO,
+            (NumericValue::PositiveInfinity, NumericValue::NegativeInfinity) => {
+                NumericValue::zero()
+            }
             (NumericValue::NegativeInfinity, NumericValue::PositiveInfinity) => {
                 NumericValue::POSITIVE_INFINITY
             }
-            (NumericValue::NegativeInfinity, NumericValue::NegativeInfinity) => NumericValue::ZERO,
+            (NumericValue::NegativeInfinity, NumericValue::NegativeInfinity) => {
+                NumericValue::zero()
+            }
 
             // Handle finite base and exponent
             (NumericValue::Decimal(base), NumericValue::Decimal(exp)) => {
@@ -577,9 +640,9 @@ impl NumericValue {
             }
 
             // Handle cases where exponent is NegativeZero
-            (NumericValue::Decimal(_), NumericValue::NegativeZero) => NumericValue::ONE, // x^(-0) = 1
-            (NumericValue::PositiveInfinity, NumericValue::NegativeZero) => NumericValue::ONE, // (+∞)^(-0) = 1
-            (NumericValue::NegativeInfinity, NumericValue::NegativeZero) => NumericValue::ONE, // (-∞)^(-0) = 1
+            (NumericValue::Decimal(_), NumericValue::NegativeZero) => NumericValue::one(), // x^(-0) = 1
+            (NumericValue::PositiveInfinity, NumericValue::NegativeZero) => NumericValue::one(), // (+∞)^(-0) = 1
+            (NumericValue::NegativeInfinity, NumericValue::NegativeZero) => NumericValue::one(), // (-∞)^(-0) = 1
         }
     }
 
@@ -754,10 +817,10 @@ impl NumericValue {
     pub fn exp(self) -> NumericValue {
         // Special value handling first
         match &self {
-            NumericValue::NegativeZero => return NumericValue::ONE,
+            NumericValue::NegativeZero => return NumericValue::one(),
             NumericValue::NaN => return NumericValue::NaN,
             NumericValue::PositiveInfinity => return NumericValue::PositiveInfinity,
-            NumericValue::NegativeInfinity => return NumericValue::ZERO,
+            NumericValue::NegativeInfinity => return NumericValue::zero(),
             _ => {}
         }
 
@@ -823,7 +886,7 @@ impl NumericValue {
     pub fn cos(self) -> NumericValue {
         // Special value handling first
         match &self {
-            NumericValue::NegativeZero => return NumericValue::ONE,
+            NumericValue::NegativeZero => return NumericValue::one(),
             NumericValue::NaN => return NumericValue::NaN,
             NumericValue::PositiveInfinity | NumericValue::NegativeInfinity => {
                 return NumericValue::NaN;
@@ -1163,11 +1226,16 @@ impl NumericValue {
 
     pub fn to_decimal(&self) -> Option<Decimal> {
         match self {
-            NumericValue::Rational(r, _) => {
-                // Try to convert rational to decimal
-                // This may lose precision for repeating decimals
-                let f = r.numer().to_f64()? / r.denom().to_f64()?;
-                Decimal::from_f64(f)
+            NumericValue::Rational(r, is_term) => {
+                // Only convert if rational is a terminating decimal
+                // Non-terminating rationals (like 1/3) cannot be exactly represented
+                if *is_term {
+                    // Use exact Decimal arithmetic, no f64 intermediate
+                    Some(Decimal::from(*r.numer()) / Decimal::from(*r.denom()))
+                } else {
+                    // Non-terminating: return None to signal inexact conversion
+                    None
+                }
             }
             NumericValue::Decimal(d) => Some(*d),
             NumericValue::BigDecimal(_) => None, // TODO: implement conversion
@@ -1452,7 +1520,7 @@ impl Number {
         let self_trans = self.is_transcendental();
         let self_rat_approx = self.is_rational_approximation();
 
-        let (value, rat_overflow) = self.value + NumericValue::ONE;
+        let (value, rat_overflow) = self.value + NumericValue::one();
 
         // Use helper to combine flags
         let apprx = crate::ops::arithmetic::combine_approximation_flags(
@@ -1473,7 +1541,7 @@ impl Number {
         let self_trans = self.is_transcendental();
         let self_rat_approx = self.is_rational_approximation();
 
-        let (value, rat_overflow) = self.value - NumericValue::ONE;
+        let (value, rat_overflow) = self.value - NumericValue::one();
 
         let apprx = combine_approximation_flags(
             self_trans,

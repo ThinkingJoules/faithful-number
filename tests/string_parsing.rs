@@ -103,7 +103,7 @@ fn empty_string_is_error_default() {
 #[test]
 #[cfg(feature = "js_string_parse")]
 fn empty_string_is_zero_js() {
-    assert_eq!(Number::from_str("").unwrap(), Number::ZERO);
+    assert_eq!(Number::from_str("").unwrap(), Number::ZERO());
 }
 
 #[test]

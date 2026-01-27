@@ -280,8 +280,8 @@ mod js_semantics_tests {
         assert!(Number::NAN.is_nan());
         assert!(Number::POSITIVE_INFINITY.is_positive_infinity());
         assert!(Number::NEGATIVE_INFINITY.is_negative_infinity());
-        assert!(Number::ZERO.is_finite());
-        assert!(Number::ONE.is_finite());
+        assert!(Number::ZERO().is_finite());
+        assert!(Number::ONE().is_finite());
 
         assert!(!Number::NAN.is_finite());
         assert!(!Number::POSITIVE_INFINITY.is_finite());
@@ -626,9 +626,10 @@ mod js_semantics_tests {
         assert_js_eq!(positive.clone().ceil(), num!(4));
         assert_js_eq!(negative.clone().ceil(), num!(-3));
 
-        // Round (ties to even in JS)
+        // Round (half away from zero - mathematical default, not JS semantics)
+        // JS uses half toward +∞, but per VISION.md we use mathematical semantics by default
         assert_js_eq!(num!(3.5).round(), num!(4));
-        assert_js_eq!(num!(-3.5).round(), num!(-3));
+        assert_js_eq!(num!(-3.5).round(), num!(-4)); // Mathematical: away from zero
 
         // Trunc
         assert_js_eq!(positive.clone().trunc(), num!(3));
@@ -807,7 +808,7 @@ mod js_semantics_tests {
         assert_js_eq!(Number::from_str("  42  ").unwrap(), num!(42));
 
         // Empty string converts to 0 in JS
-        assert_js_eq!(Number::from_str("").unwrap(), Number::ZERO);
+        assert_js_eq!(Number::from_str("").unwrap(), Number::ZERO());
     }
 
     #[test]

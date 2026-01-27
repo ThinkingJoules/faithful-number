@@ -2,6 +2,12 @@ use bigdecimal::BigDecimal;
 use num_rational::{Ratio, Rational64};
 use rust_decimal::Decimal;
 
+/// Maximum denominator for continued fractions rational recovery.
+/// Set to 10^9 to ensure arithmetic safety: two rationals with denominators
+/// up to 10^9 can multiply without overflow (10^9 × 10^9 = 10^18 < i64::MAX).
+/// See: project/dev_manual/decisions/011-cf-denominator-limit.md
+const CF_MAX_DENOM: i64 = 1_000_000_000;
+
 /// A smart number type that supports multiple internal representations
 /// with automatic upgrades for precision and proper handling of IEEE special values
 #[derive(Debug, Clone)]
@@ -28,9 +34,16 @@ impl NumericValue {
     // pub const NAN: NumericValue = NumericValue::NaN;
     pub const POSITIVE_INFINITY: NumericValue = NumericValue::PositiveInfinity;
     pub const NEGATIVE_INFINITY: NumericValue = NumericValue::NegativeInfinity;
-    pub const ZERO: NumericValue = NumericValue::Decimal(Decimal::ZERO);
-    pub const ONE: NumericValue = NumericValue::Decimal(Decimal::ONE);
-    // pub const NEGATIVE_ZERO: NumericValue = NumericValue::NegativeZero;
+    // ZERO and ONE are Rational for consistency with Number::from(0) and Number::from(1)
+    // Note: Not const because Ratio::new is not const-compatible
+    #[inline]
+    pub fn zero() -> NumericValue {
+        NumericValue::Rational(Ratio::from_integer(0), true)
+    }
+    #[inline]
+    pub fn one() -> NumericValue {
+        NumericValue::Rational(Ratio::from_integer(1), true)
+    }
 
     // Constructors for Decimal
     pub fn new(num: i64, scale: u32) -> Self {
@@ -114,7 +127,7 @@ impl NumericValue {
     }
 
     // Introspection for representation type
-    pub fn representation(&self) -> &str {
+    pub fn representation(&self) -> &'static str {
         match self {
             NumericValue::Rational(_, _) => "Rational",
             NumericValue::Decimal(_) => "Decimal",
@@ -127,10 +140,54 @@ impl NumericValue {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApproximationType {
     Transcendental,        // From irrational operations
     RationalApproximation, // From Rational→Decimal graduation
+}
+
+/// Information about a Number's internal state for introspection.
+///
+/// Use `Number::info()` to get this struct. It provides visibility into
+/// the internal representation and approximation status without exposing
+/// the underlying implementation details.
+///
+/// # Example
+/// ```
+/// use faithful_number::Number;
+///
+/// let n = Number::from(1) / Number::from(3);
+/// let info = n.info();
+/// println!("{}", info); // Rational (exact)
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NumberInfo {
+    /// The internal representation type: "Rational", "Decimal", "BigDecimal",
+    /// "NaN", "PositiveInfinity", "NegativeInfinity", or "NegativeZero"
+    pub representation: &'static str,
+    /// Whether the value is exact (no precision was lost)
+    pub is_exact: bool,
+    /// The type of approximation, if any
+    pub approximation_type: Option<ApproximationType>,
+}
+
+impl std::fmt::Display for NumberInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.representation)?;
+        if self.is_exact {
+            write!(f, " (exact)")
+        } else {
+            match &self.approximation_type {
+                Some(ApproximationType::Transcendental) => {
+                    write!(f, " (approximate: Transcendental)")
+                }
+                Some(ApproximationType::RationalApproximation) => {
+                    write!(f, " (approximate: RationalApproximation)")
+                }
+                None => write!(f, " (approximate)"),
+            }
+        }
+    }
 }
 
 /// The main public number type - a wrapper around NumericValue that tracks
@@ -155,14 +212,24 @@ impl Number {
         value: NumericValue::NegativeInfinity,
         apprx: None,
     };
-    pub const ZERO: Number = Number {
-        value: NumericValue::Decimal(Decimal::ZERO),
-        apprx: None,
-    };
-    pub const ONE: Number = Number {
-        value: NumericValue::Decimal(Decimal::ONE),
-        apprx: None,
-    };
+    // ZERO and ONE as Rational for consistency with Number::from(0/1)
+    // Cannot be const because Ratio::new is not const, so we use functions
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn ZERO() -> Number {
+        Number {
+            value: NumericValue::zero(),
+            apprx: None,
+        }
+    }
+    #[inline]
+    #[allow(non_snake_case)]
+    pub fn ONE() -> Number {
+        Number {
+            value: NumericValue::one(),
+            apprx: None,
+        }
+    }
     pub const NEGATIVE_ZERO: Number = Number {
         value: NumericValue::NegativeZero,
         apprx: None,
@@ -271,7 +338,7 @@ impl Number {
     }
 
     // Introspection
-    pub fn representation(&self) -> &str {
+    pub fn representation(&self) -> &'static str {
         self.value.representation()
     }
 
@@ -285,6 +352,28 @@ impl Number {
 
     pub fn is_rational_approximation(&self) -> bool {
         matches!(self.apprx, Some(ApproximationType::RationalApproximation))
+    }
+
+    /// Returns complete information about this Number's internal state.
+    ///
+    /// This is useful for debugging and understanding how the library
+    /// is representing and tracking your numbers.
+    ///
+    /// # Example
+    /// ```
+    /// use faithful_number::Number;
+    ///
+    /// let n = Number::from(2).sqrt();
+    /// let info = n.info();
+    /// assert!(!info.is_exact); // sqrt(2) is transcendental
+    /// println!("{}", info);     // "Decimal (approximate: Transcendental)"
+    /// ```
+    pub fn info(&self) -> NumberInfo {
+        NumberInfo {
+            representation: self.value.representation(),
+            is_exact: self.apprx.is_none(),
+            approximation_type: self.apprx.clone(),
+        }
     }
 
     // Debug-only unwrap helpers that panic on logic bugs
@@ -477,7 +566,7 @@ pub(crate) fn is_small_enough_for_rational(bd: &BigDecimal) -> bool {
 /// rational, when converted back to Decimal, matches the original input exactly across
 /// all 28 digits. This prevents false positives where a value close to (but not exactly)
 /// a simple fraction gets incorrectly marked as exact.
-fn try_decimal_to_rational(d: Decimal) -> Option<Rational64> {
+pub(crate) fn try_decimal_to_rational(d: Decimal) -> Option<Rational64> {
     // Early exit for very large or very small numbers
     // Skip expensive continued fractions algorithm if value can't possibly fit in i64/i64
     // Use same threshold as is_small_enough_for_rational
@@ -518,7 +607,7 @@ fn try_decimal_to_rational(d: Decimal) -> Option<Rational64> {
     println!("Direct conversion failed, using rational_approximation");
 
     // If direct conversion failed, use continued fractions
-    let candidate = rational_approximation(d, 1_000_000_000)?;
+    let candidate = rational_approximation(d, CF_MAX_DENOM)?;
 
     // CRITICAL: Verify the candidate matches exactly
     verify_exact_match(d, candidate)
@@ -650,8 +739,8 @@ pub(crate) fn try_bigdecimal_to_decimal(bd: &BigDecimal) -> Option<Decimal> {
 fn try_decimal_to_rational_bigdecimal(bd: &BigDecimal) -> Option<Rational64> {
     // First, try direct BigDecimal→Decimal conversion
     if let Some(d) = try_bigdecimal_to_decimal(bd) {
-        // Use existing Decimal→Rational logic
-        let candidate = rational_approximation(d, i64::MAX)?;
+        // Use existing Decimal→Rational logic with consistent limit
+        let candidate = rational_approximation(d, CF_MAX_DENOM)?;
 
         // CRITICAL: Verify exact match by converting back to BigDecimal
         let reconstructed =
@@ -669,7 +758,7 @@ fn try_decimal_to_rational_bigdecimal(bd: &BigDecimal) -> Option<Rational64> {
     let bd_rounded = bd.with_prec(28);
 
     if let Some(d) = try_bigdecimal_to_decimal(&bd_rounded) {
-        let candidate = rational_approximation(d, i64::MAX)?;
+        let candidate = rational_approximation(d, CF_MAX_DENOM)?;
 
         // CRITICAL: Verify exact match against ORIGINAL BigDecimal
         let reconstructed =
