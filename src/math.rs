@@ -116,10 +116,16 @@ impl NumericValue {
 
     pub fn round_dp(self, dp: u32) -> NumericValue {
         match self {
-            NumericValue::Rational(_, _) => unimplemented!("Rational round_dp not yet implemented"),
+            NumericValue::Rational(r, _) => {
+                // Convert to Decimal for rounding, then back
+                use rust_decimal::Decimal;
+                let d = Decimal::from(*r.numer()) / Decimal::from(*r.denom());
+                NumericValue::Decimal(d.round_dp(dp))
+            }
             NumericValue::Decimal(d) => NumericValue::Decimal(d.round_dp(dp)),
-            NumericValue::BigDecimal(_) => {
-                unimplemented!("BigDecimal round_dp not yet implemented")
+            NumericValue::BigDecimal(bd) => {
+                // BigDecimal round to specified decimal places
+                NumericValue::BigDecimal(bd.round(dp as i64))
             }
             NumericValue::NegativeZero => NumericValue::NegativeZero, // round(-0) = -0
             NumericValue::NaN => NumericValue::NaN,
@@ -138,7 +144,7 @@ impl NumericValue {
                 }
             }
             NumericValue::Decimal(d) => NumericValue::Decimal(d.trunc()),
-            NumericValue::BigDecimal(_) => unimplemented!("BigDecimal trunc not yet implemented"),
+            NumericValue::BigDecimal(bd) => NumericValue::BigDecimal(bd.with_scale(0)),
             NumericValue::NegativeZero => NumericValue::NegativeZero, // trunc(-0) = -0
             NumericValue::NaN => NumericValue::NaN,
             NumericValue::PositiveInfinity => NumericValue::PositiveInfinity,
@@ -1085,7 +1091,10 @@ impl NumericValue {
                 }
             }
             NumericValue::Decimal(d) => d.to_i32(),
-            NumericValue::BigDecimal(_) => unimplemented!("BigDecimal to_i32 not yet implemented"),
+            NumericValue::BigDecimal(bd) => {
+                use bigdecimal::ToPrimitive;
+                bd.to_i32()
+            }
             NumericValue::NegativeZero => Some(0),
             NumericValue::NaN => None,
             NumericValue::PositiveInfinity => None,
@@ -1103,7 +1112,10 @@ impl NumericValue {
                 }
             }
             NumericValue::Decimal(d) => d.to_u32(),
-            NumericValue::BigDecimal(_) => unimplemented!("BigDecimal to_u32 not yet implemented"),
+            NumericValue::BigDecimal(bd) => {
+                use bigdecimal::ToPrimitive;
+                bd.to_u32()
+            }
             NumericValue::NegativeZero => Some(0),
             NumericValue::NaN => None,
             NumericValue::PositiveInfinity => None,
@@ -1121,7 +1133,10 @@ impl NumericValue {
                 }
             }
             NumericValue::Decimal(d) => d.to_i64(),
-            NumericValue::BigDecimal(_) => unimplemented!("BigDecimal to_i64 not yet implemented"),
+            NumericValue::BigDecimal(bd) => {
+                use bigdecimal::ToPrimitive;
+                bd.to_i64()
+            }
             NumericValue::NegativeZero => Some(0),
             NumericValue::NaN => None,
             NumericValue::PositiveInfinity => None,

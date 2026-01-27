@@ -70,13 +70,13 @@ mod tests {
     #[cfg(feature = "high_precision")]
     fn test_precision_control() {
         let default = get_default_precision();
-        assert_eq!(default, 100);
+        assert_eq!(default, 256); // Default is 256 bits (~71 decimal digits)
 
         set_default_precision(200);
         assert_eq!(get_default_precision(), 200);
 
         // Restore default
-        set_default_precision(100);
+        set_default_precision(256);
     }
 
     #[test]

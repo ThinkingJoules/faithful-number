@@ -1,10 +1,7 @@
 use crate::Number;
-use std::ops::{
-    AddAssign, BitAndAssign, BitOrAssign, BitXorAssign, DivAssign, MulAssign, RemAssign, ShlAssign,
-    ShrAssign, SubAssign,
-};
+use std::ops::{AddAssign, DivAssign, MulAssign, RemAssign, SubAssign};
 
-// Assignment operators
+// Arithmetic assignment operators - always available
 impl AddAssign for Number {
     fn add_assign(&mut self, rhs: Number) {
         *self = self.clone() + rhs;
@@ -35,33 +32,39 @@ impl RemAssign for Number {
     }
 }
 
-// Bitwise assignment operators
-impl BitAndAssign for Number {
-    fn bitand_assign(&mut self, rhs: Number) {
-        *self = self.clone() & rhs;
-    }
-}
+// Bitwise assignment operators - only with js_bitwise feature
+#[cfg(feature = "js_bitwise")]
+mod bitwise_assign {
+    use super::*;
+    use std::ops::{BitAndAssign, BitOrAssign, BitXorAssign, ShlAssign, ShrAssign};
 
-impl BitOrAssign for Number {
-    fn bitor_assign(&mut self, rhs: Number) {
-        *self = self.clone() | rhs;
+    impl BitAndAssign for Number {
+        fn bitand_assign(&mut self, rhs: Number) {
+            *self = self.bitand_i32(&rhs);
+        }
     }
-}
 
-impl BitXorAssign for Number {
-    fn bitxor_assign(&mut self, rhs: Number) {
-        *self = self.clone() ^ rhs;
+    impl BitOrAssign for Number {
+        fn bitor_assign(&mut self, rhs: Number) {
+            *self = self.bitor_i32(&rhs);
+        }
     }
-}
 
-impl ShlAssign<Number> for Number {
-    fn shl_assign(&mut self, rhs: Number) {
-        *self = self.clone() << rhs;
+    impl BitXorAssign for Number {
+        fn bitxor_assign(&mut self, rhs: Number) {
+            *self = self.bitxor_i32(&rhs);
+        }
     }
-}
 
-impl ShrAssign<Number> for Number {
-    fn shr_assign(&mut self, rhs: Number) {
-        *self = self.clone() >> rhs;
+    impl ShlAssign<Number> for Number {
+        fn shl_assign(&mut self, rhs: Number) {
+            *self = self.shl_i32(&rhs);
+        }
+    }
+
+    impl ShrAssign<Number> for Number {
+        fn shr_assign(&mut self, rhs: Number) {
+            *self = self.shr_i32(&rhs);
+        }
     }
 }

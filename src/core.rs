@@ -250,6 +250,26 @@ impl Number {
         self.value.is_negative_infinity()
     }
 
+    /// Alias for is_negative_infinity
+    pub fn is_neg_infinity(&self) -> bool {
+        self.value.is_negative_infinity()
+    }
+
+    pub fn is_neg_zero(&self) -> bool {
+        matches!(self.value, NumericValue::NegativeZero)
+    }
+
+    pub fn is_zero(&self) -> bool {
+        use num_traits::Zero;
+        match &self.value {
+            NumericValue::Rational(r, _) => r.is_zero(),
+            NumericValue::Decimal(d) => d.is_zero(),
+            NumericValue::BigDecimal(bd) => bd.is_zero(),
+            NumericValue::NegativeZero => true,
+            _ => false,
+        }
+    }
+
     // Introspection
     pub fn representation(&self) -> &str {
         self.value.representation()

@@ -87,9 +87,14 @@ impl ArithmeticTestCase {
         expected_repr: &str,
         expected_apprx: Option<ApproximationType>,
     ) {
-        // Value equality (NaN == NaN allowed)
-        assert_eq!(
-            result, expected,
+        // Value equality - handle NaN specially since NaN != NaN by default
+        let values_match = if result.is_nan() && expected.is_nan() {
+            true // Both NaN is a match
+        } else {
+            result == expected
+        };
+        assert!(
+            values_match,
             "[{}:{}] Value mismatch: got {:?}, expected {:?}",
             self.name, op_name, result, expected
         );

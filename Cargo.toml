@@ -1,7 +1,12 @@
 [package]
 name = "faithful-number"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
+description = "Exact arithmetic when possible, with explicit tracking when approximation is unavoidable"
+repository = "https://github.com/example/faithful-number"
+license = "MIT OR Apache-2.0"
+keywords = ["arithmetic", "precision", "decimal", "rational", "number"]
+categories = ["mathematics", "science"]
 
 [dependencies]
 rust_decimal = "1"
@@ -11,4 +16,15 @@ bigdecimal = "0.4"
 rug = { version = "1.28.0", optional = true }
 
 [features]
+default = []
+
+# Individual JS behaviors
+js_nan_equality = []     # NaN == NaN returns true, enables Eq trait
+js_bitwise = []          # Implicit ToInt32 coercion for &, |, ^, <<, >>
+js_string_parse = []     # Empty string -> 0, whitespace trimming
+
+# Umbrella feature
+js_compat = ["js_nan_equality", "js_bitwise", "js_string_parse"]
+
+# High precision transcendentals via MPFR
 high_precision = ["rug"]

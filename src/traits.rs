@@ -49,7 +49,15 @@ impl Signed for Number {
 
     fn signum(&self) -> Self {
         match &self.value {
-            NumericValue::Rational(_r, _) => unimplemented!("Rational signum not yet implemented"),
+            NumericValue::Rational(r, _) => {
+                if r.is_zero() {
+                    Number::zero()
+                } else if r.is_positive() {
+                    Number::one()
+                } else {
+                    -Number::one()
+                }
+            }
             NumericValue::Decimal(d) => {
                 if d.is_zero() {
                     Number::zero()
@@ -59,7 +67,16 @@ impl Signed for Number {
                     -Number::one()
                 }
             }
-            NumericValue::BigDecimal(_) => unimplemented!("BigDecimal signum not yet implemented"),
+            NumericValue::BigDecimal(bd) => {
+                use num_traits::Zero;
+                if bd.is_zero() {
+                    Number::zero()
+                } else if bd > &bigdecimal::BigDecimal::from(0) {
+                    Number::one()
+                } else {
+                    -Number::one()
+                }
+            }
             NumericValue::NegativeZero => Number::neg_zero(), // signum(-0) = -0
             NumericValue::NaN => Number::nan(),
             NumericValue::PositiveInfinity => Number::one(),
@@ -106,7 +123,7 @@ impl Num for Number {
             // For non-integer values or very large numbers, this is more complex
             // JavaScript parseInt has specific rules about parsing partial numbers
             // TODO: Implement full JavaScript parseInt semantics
-            todo!() // Need proper JavaScript parseInt implementation
+            Err(()) // Non-integer radix parsing not supported
         }
     }
 }
@@ -122,7 +139,10 @@ impl ToPrimitive for Number {
                 }
             }
             NumericValue::Decimal(d) => d.to_i64(),
-            NumericValue::BigDecimal(_) => unimplemented!("BigDecimal to_i64 not yet implemented"),
+            NumericValue::BigDecimal(bd) => {
+                use bigdecimal::ToPrimitive;
+                bd.to_i64()
+            }
             NumericValue::NegativeZero => Some(0),
             _ => None,
         }
@@ -138,7 +158,10 @@ impl ToPrimitive for Number {
                 }
             }
             NumericValue::Decimal(d) => d.to_u64(),
-            NumericValue::BigDecimal(_) => unimplemented!("BigDecimal to_u64 not yet implemented"),
+            NumericValue::BigDecimal(bd) => {
+                use bigdecimal::ToPrimitive;
+                bd.to_u64()
+            }
             NumericValue::NegativeZero => Some(0),
             _ => None,
         }
@@ -189,24 +212,53 @@ impl Display for Number {
 
 impl Hash for Number {
     fn hash<H: Hasher>(&self, state: &mut H) {
+        // Hash must be consistent with PartialEq: equal values must have equal hashes.
+        // Since +0 == -0 and cross-representation equality exists, we need careful hashing.
         match &self.value {
-            NumericValue::Rational(_r, _) => unimplemented!("Rational hash not yet implemented"),
-            NumericValue::Decimal(d) => {
-                0u8.hash(state); // Discriminant
-                d.hash(state);
-            }
-            NumericValue::BigDecimal(_bd) => unimplemented!("BigDecimal hash not yet implemented"),
             NumericValue::NaN => {
-                1u8.hash(state); // All NaN values hash the same
+                0u8.hash(state); // All NaN values hash the same
             }
             NumericValue::PositiveInfinity => {
-                2u8.hash(state);
+                1u8.hash(state);
             }
             NumericValue::NegativeInfinity => {
-                3u8.hash(state);
+                2u8.hash(state);
             }
             NumericValue::NegativeZero => {
-                4u8.hash(state);
+                // -0 == +0, so hash same as zero
+                3u8.hash(state);
+                0i64.hash(state);
+            }
+            NumericValue::Rational(r, _) => {
+                if r.is_zero() {
+                    // Hash same as NegativeZero and Decimal(0)
+                    3u8.hash(state);
+                    0i64.hash(state);
+                } else {
+                    3u8.hash(state);
+                    // Rational is already in reduced form
+                    r.numer().hash(state);
+                    r.denom().hash(state);
+                }
+            }
+            NumericValue::Decimal(d) => {
+                if d.is_zero() {
+                    3u8.hash(state);
+                    0i64.hash(state);
+                } else {
+                    3u8.hash(state);
+                    d.normalize().hash(state);
+                }
+            }
+            NumericValue::BigDecimal(bd) => {
+                if bd.is_zero() {
+                    3u8.hash(state);
+                    0i64.hash(state);
+                } else {
+                    // BigDecimal doesn't impl Hash, use string representation
+                    3u8.hash(state);
+                    bd.to_string().hash(state);
+                }
             }
         }
     }
@@ -215,14 +267,11 @@ impl Hash for Number {
 impl PartialEq for Number {
     fn eq(&self, other: &Number) -> bool {
         match (self.value(), other.value()) {
-            // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            // INTENTIONAL BUG: NaN == NaN returns true (WRONG for JS semantics!)
-            // This is required for Rust's Eq trait which demands reflexivity (a == a).
-            // JavaScript semantics require NaN != NaN, but Rust's HashMap/HashSet need Eq.
-            // DO NOT CHANGE THIS WITHOUT UNDERSTANDING THE TRADE-OFF!
-            // See test_nan_semantics and test_js_equality_vs_strict_equality for failures.
-            // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+            // NaN handling depends on feature flag
+            #[cfg(feature = "js_nan_equality")]
             (NumericValue::NaN, NumericValue::NaN) => true,
+            #[cfg(not(feature = "js_nan_equality"))]
+            (NumericValue::NaN, NumericValue::NaN) => false, // IEEE 754 compliant
             (NumericValue::NaN, _) | (_, NumericValue::NaN) => false,
             (NumericValue::Rational(a, _), NumericValue::Rational(b, _)) => a == b,
             (NumericValue::Decimal(a), NumericValue::Decimal(b)) => a == b,
@@ -236,8 +285,8 @@ impl PartialEq for Number {
 
             // Mixed-type comparisons
             // Rational vs Decimal: convert Decimal to Rational for exact comparison
-            (NumericValue::Rational(r, _), NumericValue::Decimal(d)) |
-            (NumericValue::Decimal(d), NumericValue::Rational(r, _)) => {
+            (NumericValue::Rational(r, _), NumericValue::Decimal(d))
+            | (NumericValue::Decimal(d), NumericValue::Rational(r, _)) => {
                 // Convert Decimal to Rational for exact comparison
                 use num_rational::Ratio;
                 let mantissa = d.mantissa();
@@ -254,8 +303,8 @@ impl PartialEq for Number {
             }
 
             // Rational vs BigDecimal: convert to BigDecimal for comparison
-            (NumericValue::Rational(r, _), NumericValue::BigDecimal(bd)) |
-            (NumericValue::BigDecimal(bd), NumericValue::Rational(r, _)) => {
+            (NumericValue::Rational(r, _), NumericValue::BigDecimal(bd))
+            | (NumericValue::BigDecimal(bd), NumericValue::Rational(r, _)) => {
                 use bigdecimal::{BigDecimal, num_bigint::BigInt};
                 let numer_bd = BigDecimal::from(BigInt::from(*r.numer()));
                 let denom_bd = BigDecimal::from(BigInt::from(*r.denom()));
@@ -263,8 +312,8 @@ impl PartialEq for Number {
             }
 
             // Decimal vs BigDecimal: convert Decimal to BigDecimal
-            (NumericValue::Decimal(d), NumericValue::BigDecimal(bd)) |
-            (NumericValue::BigDecimal(bd), NumericValue::Decimal(d)) => {
+            (NumericValue::Decimal(d), NumericValue::BigDecimal(bd))
+            | (NumericValue::BigDecimal(bd), NumericValue::Decimal(d)) => {
                 use bigdecimal::BigDecimal;
                 let d_str = d.to_string();
                 if let Ok(d_bd) = d_str.parse::<BigDecimal>() {
@@ -275,12 +324,12 @@ impl PartialEq for Number {
             }
 
             // Rational vs NegativeZero
-            (NumericValue::Rational(r, _), NumericValue::NegativeZero) |
-            (NumericValue::NegativeZero, NumericValue::Rational(r, _)) => r.is_zero(),
+            (NumericValue::Rational(r, _), NumericValue::NegativeZero)
+            | (NumericValue::NegativeZero, NumericValue::Rational(r, _)) => r.is_zero(),
 
             // BigDecimal vs NegativeZero
-            (NumericValue::BigDecimal(bd), NumericValue::NegativeZero) |
-            (NumericValue::NegativeZero, NumericValue::BigDecimal(bd)) => bd.is_zero(),
+            (NumericValue::BigDecimal(bd), NumericValue::NegativeZero)
+            | (NumericValue::NegativeZero, NumericValue::BigDecimal(bd)) => bd.is_zero(),
 
             // All other mixed-type comparisons are false
             _ => false,
@@ -407,10 +456,15 @@ impl PartialOrd for Number {
     }
 }
 
+// Eq requires reflexivity (a == a), which NaN violates in IEEE 754.
+// Only enable Eq when js_nan_equality feature makes NaN == NaN return true.
+#[cfg(feature = "js_nan_equality")]
 impl Eq for Number {}
 
 // Total ordering: NaN < -Infinity < finite numbers < +Infinity
 // Note: -0 and +0 are treated as equal in this ordering
+// Ord requires Eq, so only available with js_nan_equality feature.
+#[cfg(feature = "js_nan_equality")]
 impl Ord for Number {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self.value(), other.value()) {

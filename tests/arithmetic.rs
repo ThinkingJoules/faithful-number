@@ -281,8 +281,11 @@ fn test_nan_arithmetic() {
         exact(),
     );
 
-    // NaN == NaN (Rust invariant)
+    // NaN comparison depends on feature flag
+    #[cfg(feature = "js_nan_equality")]
     assert_eq!(nan, nan);
+    #[cfg(not(feature = "js_nan_equality"))]
+    assert_ne!(nan, nan); // IEEE 754: NaN != NaN
 }
 
 #[test]

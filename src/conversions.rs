@@ -5,20 +5,26 @@ use rust_decimal::Decimal;
 
 use crate::{Number, NumericValue};
 
-// Parse from string with JS semantics
+// Parse from string
 impl FromStr for NumericValue {
     type Err = ();
 
     fn from_str(s: &str) -> Result<NumericValue, Self::Err> {
-        let s = s.trim();
+        #[cfg(feature = "js_string_parse")]
+        let s = s.trim(); // JS trims whitespace
+        #[cfg(not(feature = "js_string_parse"))]
+        let s = s; // Don't trim by default
 
-        // Handle special JavaScript string values
+        // Handle special string values
         match s {
             "NaN" => Ok(NumericValue::NaN),
             "Infinity" => Ok(NumericValue::PositiveInfinity),
             "-Infinity" => Ok(NumericValue::NegativeInfinity),
             "-0" => Ok(NumericValue::NegativeZero),
+            #[cfg(feature = "js_string_parse")]
             "" => Ok(NumericValue::ZERO), // Empty string converts to 0 in JS
+            #[cfg(not(feature = "js_string_parse"))]
+            "" => Err(()), // Empty string is an error by default
             _ => {
                 // Try to parse as Decimal first
                 if let Ok(d) = Decimal::from_str(s) {
@@ -28,11 +34,9 @@ impl FromStr for NumericValue {
                     if let Ok(f) = f64::from_str(s) {
                         Ok(NumericValue::from(f))
                     } else {
-                        // TODO: JavaScript has complex string-to-number conversion rules
-                        // This is a simplified version - JS would parse partial numbers
-                        // For now, leaving as todo since proper JS string-to-number conversion
-                        // requires implementing the full ECMAScript ToNumber algorithm
-                        // todo!("Need full JavaScript string-to-number conversion (ECMAScript ToNumber): {:?}", s)
+                        // Note: JavaScript has complex string-to-number conversion rules.
+                        // This is a simplified version - JS would parse partial numbers.
+                        // Full ECMAScript ToNumber would be needed for complete JS compat.
                         Err(())
                     }
                 }
@@ -98,8 +102,9 @@ impl TryFrom<NumericValue> for i32 {
                     Err(())
                 }
             }
-            NumericValue::BigDecimal(_) => {
-                unimplemented!("BigDecimal to i32 conversion not yet implemented")
+            NumericValue::BigDecimal(bd) => {
+                use bigdecimal::ToPrimitive;
+                bd.to_i32().ok_or(())
             }
             _ => Err(()), // Can't convert NaN or Infinity
         }
@@ -119,8 +124,9 @@ impl TryFrom<NumericValue> for u32 {
                     Err(())
                 }
             }
-            NumericValue::BigDecimal(_) => {
-                unimplemented!("BigDecimal to u32 conversion not yet implemented")
+            NumericValue::BigDecimal(bd) => {
+                use bigdecimal::ToPrimitive;
+                bd.to_u32().ok_or(())
             }
             _ => Err(()),
         }
@@ -140,8 +146,9 @@ impl TryFrom<NumericValue> for i64 {
                     Err(())
                 }
             }
-            NumericValue::BigDecimal(_) => {
-                unimplemented!("BigDecimal to i64 conversion not yet implemented")
+            NumericValue::BigDecimal(bd) => {
+                use bigdecimal::ToPrimitive;
+                bd.to_i64().ok_or(())
             }
             _ => Err(()),
         }
@@ -166,20 +173,26 @@ impl TryFrom<NumericValue> for Decimal {
     }
 }
 
-// Parse from string with JS semantics
+// Parse from string
 impl FromStr for Number {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Number, Self::Err> {
-        let s = s.trim();
+        #[cfg(feature = "js_string_parse")]
+        let s = s.trim(); // JS trims whitespace
+        #[cfg(not(feature = "js_string_parse"))]
+        let s = s; // Don't trim by default
 
-        // Handle special JavaScript string values
+        // Handle special string values
         let value = match s {
             "NaN" => NumericValue::NaN,
             "Infinity" => NumericValue::PositiveInfinity,
             "-Infinity" => NumericValue::NegativeInfinity,
             "-0" => NumericValue::NegativeZero,
+            #[cfg(feature = "js_string_parse")]
             "" => NumericValue::ZERO, // Empty string converts to 0 in JS
+            #[cfg(not(feature = "js_string_parse"))]
+            "" => return Err(()), // Empty string is an error by default
             _ => {
                 // Try to parse as Decimal first
                 if let Ok(d) = Decimal::from_str(s) {
@@ -389,8 +402,9 @@ impl TryFrom<Number> for i32 {
                     Err(())
                 }
             }
-            NumericValue::BigDecimal(_) => {
-                unimplemented!("BigDecimal to i32 conversion not yet implemented")
+            NumericValue::BigDecimal(bd) => {
+                use bigdecimal::ToPrimitive;
+                bd.to_i32().ok_or(())
             }
             _ => Err(()), // Can't convert NaN or Infinity
         }
@@ -410,8 +424,9 @@ impl TryFrom<Number> for u32 {
                     Err(())
                 }
             }
-            NumericValue::BigDecimal(_) => {
-                unimplemented!("BigDecimal to u32 conversion not yet implemented")
+            NumericValue::BigDecimal(bd) => {
+                use bigdecimal::ToPrimitive;
+                bd.to_u32().ok_or(())
             }
             _ => Err(()),
         }
@@ -431,8 +446,9 @@ impl TryFrom<Number> for i64 {
                     Err(())
                 }
             }
-            NumericValue::BigDecimal(_) => {
-                unimplemented!("BigDecimal to i64 conversion not yet implemented")
+            NumericValue::BigDecimal(bd) => {
+                use bigdecimal::ToPrimitive;
+                bd.to_i64().ok_or(())
             }
             _ => Err(()),
         }

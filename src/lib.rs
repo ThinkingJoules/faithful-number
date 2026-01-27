@@ -9,12 +9,14 @@ pub mod core;
 pub mod js_semantics;
 pub mod math;
 pub mod ops;
+pub mod ordered;
 pub mod precision;
 pub mod representation;
 pub mod traits;
 
 use crate::core::NumericValue;
 pub use crate::core::{ApproximationType, Number};
+pub use crate::ordered::OrderedNumber;
 pub use crate::precision::{get_default_precision, set_default_precision};
 
 pub mod repr {
@@ -53,7 +55,11 @@ mod tests {
     #[test]
     fn test_nan_semantics() {
         let nan = Number::NAN;
+        // NaN behavior depends on feature flag
+        #[cfg(feature = "js_nan_equality")]
         assert_eq!(&nan, &nan);
+        #[cfg(not(feature = "js_nan_equality"))]
+        assert_ne!(&nan, &nan); // IEEE 754: NaN != NaN
     }
 
     #[test]

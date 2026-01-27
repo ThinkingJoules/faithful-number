@@ -5,16 +5,16 @@ use std::str::FromStr;
 
 #[test]
 fn test_precision_control() {
-    // Test default precision
+    // Test default precision (256 bits = ~71 decimal digits)
     let default_prec = Number::get_default_precision();
-    assert_eq!(default_prec, 100);
+    assert_eq!(default_prec, 256);
 
     // Test setting precision
     Number::set_default_precision(200);
     assert_eq!(Number::get_default_precision(), 200);
 
     // Restore default
-    Number::set_default_precision(100);
+    Number::set_default_precision(256);
 }
 
 #[test]
@@ -71,7 +71,10 @@ fn test_high_precision_sin() {
     Number::set_default_precision(150);
 
     // Test sin(π/6) = 0.5 exactly
-    let pi_over_6 = Number::from_decimal(rust_decimal::Decimal::from_str("0.5235987755982988730771072305465838140328615665625").unwrap());
+    let pi_over_6 = Number::from_decimal(
+        rust_decimal::Decimal::from_str("0.5235987755982988730771072305465838140328615665625")
+            .unwrap(),
+    );
     let result = pi_over_6.sin();
 
     let result_f64 = result.to_f64();
@@ -84,7 +87,10 @@ fn test_high_precision_cos() {
     Number::set_default_precision(150);
 
     // Test cos(π/3) = 0.5 exactly
-    let pi_over_3 = Number::from_decimal(rust_decimal::Decimal::from_str("1.0471975511965977461542144610931676280657231331250").unwrap());
+    let pi_over_3 = Number::from_decimal(
+        rust_decimal::Decimal::from_str("1.0471975511965977461542144610931676280657231331250")
+            .unwrap(),
+    );
     let result = pi_over_3.cos();
 
     let result_f64 = result.to_f64();
@@ -97,7 +103,10 @@ fn test_high_precision_tan() {
     Number::set_default_precision(150);
 
     // Test tan(π/4) = 1 exactly
-    let pi_over_4 = Number::from_decimal(rust_decimal::Decimal::from_str("0.7853981633974483096156608458198757210492923498437").unwrap());
+    let pi_over_4 = Number::from_decimal(
+        rust_decimal::Decimal::from_str("0.7853981633974483096156608458198757210492923498437")
+            .unwrap(),
+    );
     let result = pi_over_4.tan();
 
     let result_f64 = result.to_f64();
